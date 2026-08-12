@@ -1,0 +1,195 @@
+# worktree optimiser
+
+Run every branch of a repo as its own containerised dev server, all at once, each on its
+own hostname — and manage the lot from one dashboard.
+
+```
+http://main.localhost                 →  worktree: main
+http://feature-new-header.localhost   →  worktree: feature/new-header
+http://fix-login.localhost            →  worktree: fix/login
+http://localhost:7777                 →  the manager dashboard
+```
+
+No port juggling, no stopping one dev server to look at another, no stashing to switch
+branches. Review a PR and your own work side by side in two tabs.
+
+---
+
+## Quick start
+
+```bash
+npm install
+npm run build
+npm start            # dashboard + API on http://localhost:7777
+```
+
+Open <http://localhost:7777>, click **Add project**, point it at any local clone. It
+inspects the repo, proposes how to run it, and you confirm. Then **New worktree** for any
+branch.
+
+Requires Docker, Node 20+, git 2.20+. Full walkthrough in
+**[docs/getting-started.md](docs/getting-started.md)**.
+
+---
+
+## How it works
+
+```
+                     ┌────────────────────────────────────┐
+    browser ─────────▶  Traefik  :80                      │  routes on Host header,
+                     │  docker provider, reads labels     │  rebuilds routing when a
+                     └──────────┬─────────────────────────┘  container starts
+                                │  wt-net (bridge)
+             ┌──────────────────┼──────────────────┐
+             ▼                  ▼                  ▼
+      ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+      │wt-app-main  │    │wt-app-feat… │    │wt-app-fix…  │  one container per worktree,
+      └──────┬──────┘    └──────┬──────┘    └──────┬──────┘  bind-mounted to its checkout
+             │                  │                  │
+     C:\app-worktrees\main   \feature-…         \fix-…       git worktrees on the host
+             ▲                  ▲                  ▲
+             └──────────────────┴──────────────────┘
+                                │ git worktree add/remove
+      ┌─────────────────────────┴───────────────────────────┐
+      │ manager :7777    Fastify + dockerode                │
+      │ REST API · SSE logs · React dashboard               │
+      └─────────────────────────────────────────────────────┘
+```
+
+Two design decisions shape everything else:
+
+**The manager runs on the host, not in a container.** A git worktree's `.git` is a file
+pointing at `<repo>/.git/worktrees/<name>`, which lives outside the worktree directory —
+bind-mount only the worktree and git inside it breaks. Running on the host sidesteps this.
+
+**There is no database.** git owns which worktrees exist; Docker labels own which
+container belongs to which branch. State is re-derived from `git worktree list` plus
+`docker ps`, so restarting the manager cannot desynchronise anything. The only persisted
+file is the registry of repos you've added.
+
+Consequently the manager is a **control plane, not a supervisor** — stopping it does not
+stop your dev servers.
+
+More in **[docs/architecture.md](docs/architecture.md)**.
+
+---
+
+## What detection works out
+
+Point it at a repo and it produces a runnable config without you writing one: package
+manager, Node version, framework, dev command, port, and which directories to keep off
+the bind mount.
+
+Supported out of the box — Next, Nuxt, SvelteKit, Astro, Remix, Gatsby, Angular, CRA,
+Vite, NestJS, plain Node servers, Django, FastAPI, Flask, and a static nginx fallback.
+For a monorepo it lists every workspace with a dev script and asks which to route.
+
+Detection is a **suggestion, never silently applied** — what you see in the dialog is
+what gets saved, and every field is editable afterwards.
+
+Full table in **[docs/configuration.md](docs/configuration.md)**.
+
+---
+
+## The two details that make or break this
+
+Both are verified, not assumed.
+
+**Dev servers bind to `127.0.0.1` by default**, which inside a container means visible to
+nothing. The container starts, the logs look perfect, and you get a 502. Every framework
+profile forces `0.0.0.0` explicitly, in whatever form that framework accepts.
+
+**inotify events don't cross the Windows/macOS → Linux container boundary**, so hot
+reload dies silently. Containers get polling watchers by default. Measured propagation on
+a Windows bind mount: **~1 second** from host write to updated response.
+
+`node_modules` and build caches (`.next`, `.nuxt`, `.angular`, …) live on named volumes
+rather than the bind mount. On Windows that is the difference between a usable dev server
+and an unusable one.
+
+---
+
+## Safety rails
+
+- The primary checkout can never be removed — only its container stopped.
+- Worktree deletion refuses any path outside the project's configured worktrees root.
+- Removing a worktree **keeps the branch**; only the checkout and container go.
+- Deleting a worktree with uncommitted changes requires an explicit `force`.
+- Containers have **no restart policy** — a crashed dev server stays crashed and visible
+  rather than crash-looping quietly.
+- Worktrees are created in a sibling directory, never inside the repo, so they never
+  appear as untracked files in the parent checkout.
+- Orphaned containers (worktree deleted behind the tool's back) are surfaced, not hidden.
+
+---
+
+## API
+
+The dashboard is a client of the same REST API, so anything it does is scriptable.
+
+```
+GET    /api/system
+POST   /api/system/proxy
+GET    /api/projects
+POST   /api/projects/detect                        { repoPath } → proposal
+POST   /api/projects
+PATCH  /api/projects/:id
+DELETE /api/projects/:id
+GET    /api/projects/:id/branches
+POST   /api/projects/:id/fetch
+GET    /api/projects/:id/worktrees
+POST   /api/projects/:id/worktrees                 { branch, createBranch, baseRef, start }
+POST   /api/projects/:id/worktrees/:slug/start     { recreate }
+POST   /api/projects/:id/worktrees/:slug/stop
+POST   /api/projects/:id/worktrees/:slug/restart
+DELETE /api/projects/:id/worktrees/:slug?force&keepWorktree
+GET    /api/projects/:id/worktrees/:slug/probe
+GET    /api/projects/:id/worktrees/:slug/logs?tail=N
+GET    /api/projects/:id/worktrees/:slug/logs/stream          SSE
+```
+
+Request and response shapes in **[docs/api.md](docs/api.md)**.
+
+---
+
+## Documentation
+
+| | |
+| --- | --- |
+| [Getting started](docs/getting-started.md) | Install, register a repo, run a branch |
+| [Architecture](docs/architecture.md) | How the pieces fit and why |
+| [Configuration](docs/configuration.md) | Environment + per-project settings |
+| [API reference](docs/api.md) | Every endpoint, with examples |
+| [Troubleshooting](docs/troubleshooting.md) | 502s, dead hot reload, port conflicts |
+| [Kubernetes backend](docs/kubernetes.md) | Planned migration path (not implemented) |
+
+---
+
+## Roadmap
+
+- **Kubernetes backend** — the Traefik label shape maps onto an Ingress nearly
+  one-to-one, and `docker.ts` is the only module that knows containers exist.
+- **Claude UI review** — drive a headless browser against a worktree's URL, capture
+  screenshots, and have Claude analyse the rendered frontend. Stable per-branch URLs and
+  the readiness probe exist for exactly this.
+- Per-worktree service dependencies (databases, queues) via compose fragments.
+- Resource caps per container, so twelve worktrees don't eat the machine.
+
+---
+
+## Layout
+
+```
+apps/manager/src/
+  index.ts       bootstrap: Fastify, static dashboard, Traefik, signals
+  routes.ts      REST API, zod validation, SSE log streaming
+  docker.ts      dockerode orchestration, Traefik labels, probe, log demux
+  git.ts         worktree/branch operations, porcelain v2 parsing
+  detect.ts      framework + runtime + package-manager detection
+  worktrees.ts   joins git state to container state
+  store.ts       project registry (atomic JSON)
+  paths.ts       host → container bind path conversion
+  slug.ts        branch → stable DNS-safe slug
+apps/web/src/    React dashboard
+docker/          standalone Traefik compose file
+```

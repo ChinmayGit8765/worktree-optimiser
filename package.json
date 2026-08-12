@@ -1,0 +1,21 @@
+{
+  "name": "worktree-optimiser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Run every git worktree of a repo as its own containerised dev server, behind one dashboard.",
+  "workspaces": [
+    "apps/manager",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace apps/manager",
+    "dev:web": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspace apps/web && npm run build --workspace apps/manager",
+    "start": "npm run start --workspace apps/manager",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

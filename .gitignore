@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+
+# Local manager state (registered projects, assigned ports)
+/data/
+apps/manager/public/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

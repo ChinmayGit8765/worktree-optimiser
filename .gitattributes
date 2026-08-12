@@ -1,0 +1,10 @@
+# Normalise to LF in the repo and on checkout. This tool assembles shell commands
+# that run inside Linux containers, and CRLF in anything shell-adjacent fails with
+# an opaque "\r: command not found".
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
