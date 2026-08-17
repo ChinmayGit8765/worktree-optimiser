@@ -59,11 +59,15 @@ jobs:
         env:
           # The runner's daemon is native Linux, so bind paths pass through.
           WT_BIND_STYLE: unix
+          # GitHub runners already have a listener on :80, which the doctor
+          # correctly reports as a blocking problem. Move the proxy instead.
+          WT_HTTP_PORT: '8080'
 
       - name: Integration tests
         run: npm run test:integration
         env:
           WT_BIND_STYLE: unix
+          WT_HTTP_PORT: '8080'
 
       - name: Container diagnostics on failure
         if: failure()

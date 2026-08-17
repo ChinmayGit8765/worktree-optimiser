@@ -21,19 +21,33 @@ export function bindStyle(): BindStyle {
   return os.platform() === 'win32' ? 'win' : 'unix'
 }
 
-/** Convert an absolute host path into a Docker-acceptable bind source. */
+/**
+ * Convert an absolute host path into a Docker-acceptable bind source.
+ *
+ * The input's *own* convention decides how it is parsed, not the platform we
+ * happen to be running on. Resolving first was a bug: `path.resolve('C:\\dev')`
+ * on POSIX treats the drive letter as a relative segment and prepends the cwd,
+ * producing `/home/you/C:/dev`. Docker would then create a directory with a colon
+ * in its name and bind-mount that, so the container starts with an empty
+ * workspace and nothing says why.
+ */
 export function toBindPath(hostPath: string, style: BindStyle = bindStyle()): string {
-  const abs = path.resolve(hostPath)
-  if (style === 'unix') return abs
+  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(hostPath)
+  if (drive) {
+    const letter = drive[1]!
+    const rest = drive[2]!.replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+    return style === 'wsl'
+      ? `/mnt/${letter.toLowerCase()}/${rest}`
+      : `${letter.toUpperCase()}:/${rest}`
+  }
 
-  const m = /^([A-Za-z]):[\\/](.*)$/.exec(abs)
-  if (!m) return abs.replace(/\\/g, '/')
+  // UNC (\\server\share): pass through with separators normalised.
+  if (/^[\\/]{2}/.test(hostPath)) return hostPath.replace(/\\/g, '/')
 
-  const drive = m[1]!
-  const rest = m[2]!.replace(/\\/g, '/')
-  return style === 'wsl'
-    ? `/mnt/${drive.toLowerCase()}/${rest}`
-    : `${drive.toUpperCase()}:/${rest}`
+  if (hostPath.startsWith('/')) return path.posix.normalize(hostPath)
+
+  // Relative input: make it absolute with the host's own rules, then re-classify.
+  return toBindPath(path.resolve(hostPath), style)
 }
 
 /** The docker socket bind source. Windows needs the leading double slash to dodge MSYS path conversion. */

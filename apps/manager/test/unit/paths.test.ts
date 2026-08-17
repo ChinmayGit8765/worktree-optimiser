@@ -23,7 +23,23 @@ describe('toBindPath', () => {
   })
 
   it('passes POSIX paths through untouched', () => {
-    expect(toBindPath('/home/me/app', 'unix')).toBe(path.resolve('/home/me/app'))
+    // Asserted literally, not against path.resolve: the result must not depend on
+    // which platform the test runs on.
+    expect(toBindPath('/home/me/app', 'unix')).toBe('/home/me/app')
+    expect(toBindPath('/home/me/app', 'win')).toBe('/home/me/app')
+    expect(toBindPath('/home/me//app/', 'unix')).toBe('/home/me/app/')
+  })
+
+  it('classifies by the input path style, not the host platform', () => {
+    // Regression: resolving first meant a Windows-style path on Linux became
+    // "/cwd/C:/dev/app", which Docker would happily bind as a literal directory.
+    for (const style of ['win', 'wsl', 'unix'] as const) {
+      expect(toBindPath('C:\\dev\\app', style)).not.toContain(process.cwd())
+    }
+  })
+
+  it('leaves UNC paths recognisable', () => {
+    expect(toBindPath('\\\\server\\share\\app', 'win')).toBe('//server/share/app')
   })
 })
 
