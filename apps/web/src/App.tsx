@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { AddProjectDialog } from './components/AddProjectDialog'
+import { DoctorPanel } from './components/DoctorPanel'
 import { LogPanel } from './components/LogPanel'
 import { Navigator } from './components/Navigator'
 import { NewWorktreeDialog } from './components/NewWorktreeDialog'
@@ -20,6 +21,7 @@ export default function App() {
   const [showAddProject, setShowAddProject] = useState(false)
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const [view, setView] = useState<'grid' | 'navigator'>('grid')
+  const [showDoctor, setShowDoctor] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -121,6 +123,9 @@ export default function App() {
             )}
           </>
         )}
+        <button className="btn sm" onClick={() => setShowDoctor(true)} title="Run preflight checks">
+          Doctor
+        </button>
         <div className="spacer" />
         {activeProject && (
           <span className="pill">
@@ -271,6 +276,8 @@ export default function App() {
           onClose={() => setLogSlug(null)}
         />
       )}
+
+      {showDoctor && <DoctorPanel onClose={() => setShowDoctor(false)} />}
 
       {showAddProject && (
         <AddProjectDialog

@@ -9,6 +9,7 @@ import {
   TRAEFIK_DASHBOARD_PORT,
 } from './config.js'
 import { candidateToConfig, detectProject } from './detect.js'
+import { runDoctor } from './doctor.js'
 import {
   containerLogs,
   containerLogsStructured,
@@ -164,6 +165,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       managerPort: MANAGER_PORT,
     }
   })
+
+  app.get('/api/system/doctor', async () => runDoctor())
 
   app.post('/api/system/proxy', async () => {
     await ensureTraefik()

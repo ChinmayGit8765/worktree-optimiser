@@ -129,3 +129,18 @@ export interface Detection {
   candidates: AppCandidate[]
   notes: string[]
 }
+
+export interface DoctorCheck {
+  id: string
+  label: string
+  status: 'ok' | 'warn' | 'fail'
+  detail: string
+  fix?: string
+}
+
+export interface DoctorReport {
+  ok: boolean
+  checks: DoctorCheck[]
+  platform: string
+  generatedAt: string
+}

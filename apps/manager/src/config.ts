@@ -65,6 +65,17 @@ export const PORT_RANGE: [number, number] = (() => {
   return hi > lo ? [lo, hi] : [31000, 31999]
 })()
 
+/**
+ * Default per-container resource caps. Twelve Next dev servers with no ceiling
+ * will take a laptop down; a cap turns "machine froze" into "one worktree died,
+ * visibly". 0 means unlimited.
+ *
+ * 4GB rather than something tighter because bundlers routinely peak past 2GB and
+ * an OOM mid-build looks like a mysterious crash rather than a limit.
+ */
+export const DEFAULT_CPUS = Number(process.env.WT_DEFAULT_CPUS ?? 2)
+export const DEFAULT_MEMORY_MB = Number(process.env.WT_DEFAULT_MEMORY_MB ?? 4096)
+
 /** Publishing a direct port per worktree can be turned off if you only want hostnames. */
 export const PORT_FALLBACK = process.env.WT_PORT_FALLBACK !== 'false'
 

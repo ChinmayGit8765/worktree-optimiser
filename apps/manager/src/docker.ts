@@ -349,6 +349,18 @@ export async function upWorktree(
       // Deliberately no restart policy: a dev server that dies should stay dead
       // and visible in the dashboard rather than crash-looping quietly.
       RestartPolicy: { Name: 'no' },
+      // Resource caps, applied by default. Without them a handful of bundlers
+      // will starve the host; with them one worktree dies loudly (exit 137)
+      // instead of the machine becoming unusable. 0 disables a cap.
+      ...(project.cpuLimit > 0 ? { NanoCpus: Math.round(project.cpuLimit * 1e9) } : {}),
+      ...(project.memoryLimitMb > 0
+        ? {
+            Memory: project.memoryLimitMb * 1024 * 1024,
+            // Twice the limit in swap, so a brief spike degrades rather than
+            // being killed outright mid-build.
+            MemorySwap: project.memoryLimitMb * 2 * 1024 * 1024,
+          }
+        : {}),
     },
     NetworkingConfig: { EndpointsConfig: { [NETWORK]: {} } },
   })

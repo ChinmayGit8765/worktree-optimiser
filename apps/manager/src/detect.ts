@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { DEFAULT_CPUS, DEFAULT_MEMORY_MB } from './config.js'
 import { containerPath } from './paths.js'
 import type { ProjectConfig, RuntimeKind } from './types.js'
 
@@ -445,6 +446,8 @@ export function candidateToConfig(
     env: candidate.env,
     volumePaths: candidate.volumePaths,
     watchPolling: true,
+    cpuLimit: DEFAULT_CPUS,
+    memoryLimitMb: DEFAULT_MEMORY_MB,
     packageManager: candidate.packageManager,
   }
 }

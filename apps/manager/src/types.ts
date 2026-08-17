@@ -36,6 +36,10 @@ export const ProjectConfig = z.object({
   volumePaths: z.array(z.string()).default([]),
   /** Force file-watch polling. Required for hot reload across a Windows bind. */
   watchPolling: z.boolean().default(true),
+  /** CPU cores this container may use. 0 = unlimited. */
+  cpuLimit: z.number().min(0).max(256).default(2),
+  /** Memory ceiling in MB. 0 = unlimited. Exceeding it kills the container (exit 137). */
+  memoryLimitMb: z.number().int().min(0).max(1024 * 1024).default(4096),
   packageManager: z.string().optional(),
 })
 export type ProjectConfig = z.infer<typeof ProjectConfig>
