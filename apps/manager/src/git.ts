@@ -27,7 +27,7 @@ export interface BranchRef {
   checkedOutAt: string | null
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(cwd: string, args: string[], allowExitCodes: number[] = []): Promise<string> {
   try {
     const { stdout } = await exec('git', args, {
       cwd,
@@ -36,6 +36,12 @@ async function git(cwd: string, args: string[]): Promise<string> {
     })
     return stdout
   } catch (err: unknown) {
+    // `git diff --no-index` and friends signal "there is a difference" with exit
+    // code 1, which is a result rather than a failure.
+    const code = (err as { code?: number }).code
+    if (typeof code === 'number' && allowExitCodes.includes(code)) {
+      return (err as { stdout?: string }).stdout ?? ''
+    }
     const e = err as { stderr?: string; message?: string }
     const detail = (e.stderr || e.message || String(err)).trim()
     throw new HttpError(400, `git ${args.join(' ')} failed: ${detail}`)
@@ -277,6 +283,150 @@ export interface WorkingState {
   changedFiles: number
   ahead: number
   behind: number
+}
+
+export interface FileChange {
+  path: string
+  /** A added, M modified, D deleted, T type-changed, U unmerged. */
+  status: string
+  additions: number | null
+  deletions: number | null
+  binary: boolean
+  untracked: boolean
+}
+
+export interface DiffSummary {
+  base: string
+  /** Commits on this branch not on base, and vice versa. */
+  ahead: number
+  behind: number
+  /** Committed on this branch since diverging from base. */
+  committed: FileChange[]
+  /** Uncommitted changes in the working tree, including untracked files. */
+  working: FileChange[]
+}
+
+/**
+ * Rename detection is deliberately off (`--no-renames`). Git renders renames with
+ * a `src/{a => b}.ts` brace syntax in numstat that is genuinely ambiguous to parse
+ * back into a path; showing a rename as a delete plus an add is honest and safe.
+ */
+function parseNumstat(out: string): Map<string, { additions: number | null; deletions: number | null }> {
+  const map = new Map<string, { additions: number | null; deletions: number | null }>()
+  for (const line of out.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const parts = line.split('\t')
+    if (parts.length < 3) continue
+    const [add = '', del = '', ...rest] = parts
+    const file = rest.join('\t')
+    const binary = add === '-' || del === '-'
+    map.set(file, {
+      additions: binary ? null : Number(add),
+      deletions: binary ? null : Number(del),
+    })
+  }
+  return map
+}
+
+function parseNameStatus(out: string): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const line of out.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const [status = '', ...rest] = line.split('\t')
+    const file = rest.join('\t')
+    if (file) map.set(file, status.charAt(0))
+  }
+  return map
+}
+
+export async function diffSummary(
+  worktreePath: string,
+  base: string,
+): Promise<DiffSummary> {
+  // `base...HEAD` compares against the merge base, so unrelated commits landing on
+  // base afterwards don't show up as changes this branch made.
+  const range = `${base}...HEAD`
+
+  let ahead = 0
+  let behind = 0
+  try {
+    const counts = await git(worktreePath, ['rev-list', '--left-right', '--count', range])
+    const m = /(\d+)\s+(\d+)/.exec(counts)
+    if (m) {
+      behind = Number(m[1])
+      ahead = Number(m[2])
+    }
+  } catch {
+    // base ref may not exist locally; fall through with zeroes
+  }
+
+  const committed: FileChange[] = []
+  try {
+    const [numstat, nameStatus] = await Promise.all([
+      git(worktreePath, ['diff', '--numstat', '--no-renames', range]),
+      git(worktreePath, ['diff', '--name-status', '--no-renames', range]),
+    ])
+    const counts = parseNumstat(numstat)
+    for (const [file, status] of parseNameStatus(nameStatus)) {
+      const c = counts.get(file)
+      committed.push({
+        path: file,
+        status,
+        additions: c?.additions ?? null,
+        deletions: c?.deletions ?? null,
+        binary: c ? c.additions === null : false,
+        untracked: false,
+      })
+    }
+  } catch {
+    // unresolvable base; leave committed empty rather than failing the whole view
+  }
+
+  const [workingNumstat, porcelain] = await Promise.all([
+    git(worktreePath, ['diff', '--numstat', '--no-renames', 'HEAD']).catch(() => ''),
+    git(worktreePath, ['status', '--porcelain=v1', '--untracked-files=all']),
+  ])
+  const workingCounts = parseNumstat(workingNumstat)
+
+  const working: FileChange[] = []
+  for (const line of porcelain.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const xy = line.slice(0, 2)
+    const file = line.slice(3).replace(/^"|"$/g, '')
+    const untracked = xy === '??'
+    const c = workingCounts.get(file)
+    working.push({
+      path: file,
+      status: untracked ? 'A' : (xy.trim().charAt(0) ?? 'M'),
+      additions: c?.additions ?? null,
+      deletions: c?.deletions ?? null,
+      binary: c ? c.additions === null : false,
+      untracked,
+    })
+  }
+
+  return { base, ahead, behind, committed, working }
+}
+
+export type DiffOrigin = 'committed' | 'working'
+
+export async function filePatch(
+  worktreePath: string,
+  base: string,
+  relPath: string,
+  origin: DiffOrigin,
+  untracked: boolean,
+): Promise<string> {
+  if (untracked) {
+    // An untracked file has nothing to diff against; --no-index against the null
+    // device renders it as an all-additions patch. It exits 1 to mean "differs".
+    return git(worktreePath, ['diff', '--no-index', '--', '/dev/null', relPath], [1])
+  }
+  const args =
+    origin === 'committed'
+      ? ['diff', '--no-renames', `${base}...HEAD`, '--', relPath]
+      : ['diff', '--no-renames', 'HEAD', '--', relPath]
+  return git(worktreePath, args, [1])
 }
 
 export async function workingState(worktreePath: string): Promise<WorkingState> {

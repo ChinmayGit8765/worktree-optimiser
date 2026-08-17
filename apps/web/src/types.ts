@@ -66,6 +66,43 @@ export interface SystemStatus {
   managerPort: number
 }
 
+export interface DirEntry {
+  name: string
+  path: string
+  type: 'dir' | 'file'
+  size: number | null
+}
+
+export interface DirListing {
+  path: string
+  entries: DirEntry[]
+}
+
+export interface FileContent {
+  path: string
+  size: number
+  binary: boolean
+  truncated: boolean
+  content: string
+}
+
+export interface FileChange {
+  path: string
+  status: string
+  additions: number | null
+  deletions: number | null
+  binary: boolean
+  untracked: boolean
+}
+
+export interface DiffSummary {
+  base: string
+  ahead: number
+  behind: number
+  committed: FileChange[]
+  working: FileChange[]
+}
+
 export interface AppCandidate {
   workdir: string
   label: string

@@ -20,6 +20,7 @@ import {
   stopWorktree,
   traefikStatus,
 } from './docker.js'
+import { listDir, readTextFile, resolveInside } from './files.js'
 import * as git from './git.js'
 import { slugify } from './slug.js'
 import {
@@ -283,6 +284,78 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await requireProject(id)
     const status = await probeThroughProxy(slug)
     return { reachable: status !== null, status }
+  })
+
+  // -------------------------------------------------------------------------
+  // Worktree inspection (file tree + diff)
+  // -------------------------------------------------------------------------
+
+  /** Resolve a worktree to a browsable directory, rejecting orphans. */
+  async function worktreeRoot(projectId: string, slug: string): Promise<string> {
+    const project = await requireProject(projectId)
+    const info = await resolveWorktree(project, slug)
+    if (info.path === '(worktree missing)') {
+      throw new HttpError(410, `The worktree directory for "${slug}" no longer exists.`)
+    }
+    return info.path
+  }
+
+  app.get('/api/projects/:id/worktrees/:slug/files', async (req: FastifyRequest) => {
+    const { id, slug } = parse(WorktreeParams, req.params)
+    const query = req.query as { path?: string; all?: string }
+    const root = await worktreeRoot(id, slug)
+    return listDir(root, query.path ?? '', query.all === 'true')
+  })
+
+  app.get('/api/projects/:id/worktrees/:slug/file', async (req: FastifyRequest) => {
+    const { id, slug } = parse(WorktreeParams, req.params)
+    const query = req.query as { path?: string }
+    if (!query.path) throw new HttpError(400, 'path is required')
+    const root = await worktreeRoot(id, slug)
+    return readTextFile(root, query.path)
+  })
+
+  app.get('/api/projects/:id/worktrees/:slug/diff', async (req: FastifyRequest) => {
+    const { id, slug } = parse(WorktreeParams, req.params)
+    const project = await requireProject(id)
+    const info = await resolveWorktree(project, slug)
+    if (info.path === '(worktree missing)') {
+      throw new HttpError(410, `The worktree directory for "${slug}" no longer exists.`)
+    }
+    const query = req.query as { base?: string }
+    const base = query.base || (await git.defaultBranch(project.repoPath))
+    return git.diffSummary(info.path, base)
+  })
+
+  app.get('/api/projects/:id/worktrees/:slug/diff/patch', async (req: FastifyRequest) => {
+    const { id, slug } = parse(WorktreeParams, req.params)
+    const project = await requireProject(id)
+    const info = await resolveWorktree(project, slug)
+    if (info.path === '(worktree missing)') {
+      throw new HttpError(410, `The worktree directory for "${slug}" no longer exists.`)
+    }
+    const query = req.query as {
+      path?: string
+      base?: string
+      origin?: string
+      untracked?: string
+    }
+    if (!query.path) throw new HttpError(400, 'path is required')
+
+    // Validate the path against the worktree before handing it to git, so a
+    // traversal attempt can't reach outside via `--` arguments.
+    resolveInside(info.path, query.path)
+
+    const base = query.base || (await git.defaultBranch(project.repoPath))
+    const origin: git.DiffOrigin = query.origin === 'committed' ? 'committed' : 'working'
+    const patch = await git.filePatch(
+      info.path,
+      base,
+      query.path,
+      origin,
+      query.untracked === 'true',
+    )
+    return { path: query.path, origin, base, patch }
   })
 
   app.get('/api/projects/:id/worktrees/:slug/logs', async (req: FastifyRequest) => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { AddProjectDialog } from './components/AddProjectDialog'
 import { LogPanel } from './components/LogPanel'
+import { Navigator } from './components/Navigator'
 import { NewWorktreeDialog } from './components/NewWorktreeDialog'
 import { WorktreeCard } from './components/WorktreeCard'
 import { ErrorBox, Spinner } from './components/ui'
@@ -18,6 +19,7 @@ export default function App() {
   const [logSlug, setLogSlug] = useState<string | null>(null)
   const [showAddProject, setShowAddProject] = useState(false)
   const [showNewWorktree, setShowNewWorktree] = useState(false)
+  const [view, setView] = useState<'grid' | 'navigator'>('grid')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -159,7 +161,7 @@ export default function App() {
           </button>
         </nav>
 
-        <main className="main">
+        <main className={`main${view === 'navigator' && activeProject ? ' flush' : ''}`}>
           {system && !system.dockerOk && (
             <div className="error" style={{ marginBottom: 20 }}>
               Docker is not reachable: {system.dockerError}
@@ -195,12 +197,32 @@ export default function App() {
                   </div>
                 </div>
                 <div className="spacer" />
+                <div className="split-toggle">
+                  <button
+                    className={`btn sm${view === 'grid' ? ' primary' : ''}`}
+                    onClick={() => setView('grid')}
+                  >
+                    Worktrees
+                  </button>
+                  <button
+                    className={`btn sm${view === 'navigator' ? ' primary' : ''}`}
+                    onClick={() => setView('navigator')}
+                  >
+                    Navigator
+                  </button>
+                </div>
                 <button className="btn" onClick={() => setShowNewWorktree(true)}>
                   + New worktree
                 </button>
               </div>
 
-              {worktrees.length === 0 ? (
+              {view === 'navigator' ? (
+                <Navigator
+                  projectId={activeProject.id}
+                  worktrees={worktrees}
+                  onStart={(slug) => void act(slug, () => api.start(activeProject.id, slug))}
+                />
+              ) : worktrees.length === 0 ? (
                 <div className="empty">
                   <h3>No worktrees yet</h3>
                   <p>Create one from an existing branch, or start a new branch from here.</p>

@@ -1,4 +1,13 @@
-import type { BranchRef, Detection, Project, SystemStatus, Worktree } from './types'
+import type {
+  BranchRef,
+  Detection,
+  DiffSummary,
+  DirListing,
+  FileContent,
+  Project,
+  SystemStatus,
+  Worktree,
+} from './types'
 
 export class ApiError extends Error {
   constructor(
@@ -99,4 +108,31 @@ export const api = {
       `/api/projects/${id}/worktrees/${slug}/probe`,
     ),
   logsUrl: (id: string, slug: string) => `/api/projects/${id}/worktrees/${slug}/logs/stream`,
+
+  files: (id: string, slug: string, path = '', all = false) => {
+    const q = new URLSearchParams({ path })
+    if (all) q.set('all', 'true')
+    return request<DirListing>(`/api/projects/${id}/worktrees/${slug}/files?${q}`)
+  },
+  file: (id: string, slug: string, path: string) =>
+    request<FileContent>(
+      `/api/projects/${id}/worktrees/${slug}/file?${new URLSearchParams({ path })}`,
+    ),
+  diff: (id: string, slug: string, base?: string) => {
+    const q = new URLSearchParams()
+    if (base) q.set('base', base)
+    return request<DiffSummary>(`/api/projects/${id}/worktrees/${slug}/diff?${q}`)
+  },
+  patch: (
+    id: string,
+    slug: string,
+    opts: { path: string; origin: 'committed' | 'working'; untracked?: boolean; base?: string },
+  ) => {
+    const q = new URLSearchParams({ path: opts.path, origin: opts.origin })
+    if (opts.untracked) q.set('untracked', 'true')
+    if (opts.base) q.set('base', opts.base)
+    return request<{ path: string; origin: string; base: string; patch: string }>(
+      `/api/projects/${id}/worktrees/${slug}/diff/patch?${q}`,
+    )
+  },
 }
