@@ -3,7 +3,12 @@
 Base URL `http://localhost:7777`. Everything is JSON. The dashboard is a client of this
 API and does nothing privileged, so anything it can do is scriptable.
 
-CORS is open (`origin: true`) — it's a local dev tool.
+The manager binds `127.0.0.1` only. CORS is a strict allowlist (the dashboard's own
+origin and the Vite dev server), not reflective, and a Host-header allowlist rejects
+anything else — a web page you visit must not be able to drive this API, and DNS
+rebinding must not get around that. Set `WT_TOKEN` to additionally require
+`Authorization: Bearer <token>` on every `/api/*` route. See
+[configuration](./configuration.md).
 
 ## Errors
 
@@ -44,6 +49,12 @@ Failures return a status code and a single field:
 
 `dockerOk: false` sets `dockerError` to the daemon connection error. Everything else
 still responds; nothing can start.
+
+### `GET /api/system/doctor`
+
+Environment preflight: Docker, ports, git, Node, hostname resolution, Docker Desktop
+file sharing. Each check returns `status` (`ok` / `warn` / `fail`), a `detail`, and a
+`fix` when it is not ok. Same data as `npm run doctor`.
 
 ### `POST /api/system/proxy`
 
@@ -183,8 +194,19 @@ ineligible for a new one.
       "health": null,
       "url": "http://feature-new-header.localhost",
       "altUrl": "http://feature-new-header.localtest.me",
+      "hostPort": 31700,
+      "localUrl": "http://127.0.0.1:31700",
       "head": "174f3c2d",
       "dirty": false,
+      "changedFiles": 0,
+      "ahead": 1,
+      "behind": 0,
+      "lastCommit": {
+        "hash": "174f3c2",
+        "subject": "mark feature branch",
+        "date": "2026-08-12T21:58:04+10:00"
+      },
+      "busy": false,
       "primary": false,
       "startedAt": "2026-08-12T12:05:34.000Z",
       "exitCode": null
@@ -195,6 +217,10 @@ ineligible for a new one.
 
 `status` is one of `running`, `created`, `restarting`, `paused`, `exited`, `dead`,
 `absent`. `absent` means the worktree exists but has no container.
+
+`localUrl` is a direct loopback port, deterministic per branch, that works regardless
+of whether `*.localhost` resolves on your machine. `busy` is true while this process
+has a create/start/rebuild in flight for that worktree.
 
 `primary: true` marks the repo's own checkout. It's listed like any other worktree and
 can be started and stopped, but never removed.
@@ -257,6 +283,30 @@ worktree metadata. **The branch is kept** — only the checkout goes.
 Refuses to touch the primary checkout, or any path outside the project's configured
 `worktreesRoot`.
 
+### `GET /api/projects/:id/worktrees/:slug/diagnose`
+
+Why a worktree is not serving. Reads `/proc/net/tcp` inside the container rather
+than inferring from the proxy response.
+
+```json
+{
+  "code": "bound-to-loopback",
+  "severity": "error",
+  "title": "Dev server is bound to loopback",
+  "detail": "Something is listening on port 5173 inside the container, but only on 127.0.0.1...",
+  "fix": "Make the dev server bind 0.0.0.0 - add --host 0.0.0.0 ...",
+  "listening": [{ "address": "127.0.0.1", "port": 5173 }],
+  "probeStatus": 502,
+  "exitCode": null,
+  "warnings": []
+}
+```
+
+`code` is one of `ok`, `no-container`, `container-exited`, `oom-killed`,
+`installing`, `not-listening`, `bound-to-loopback`, `port-mismatch`, `proxy-down`,
+`unreachable`. `warnings` carries advisories that apply regardless of the primary
+result, such as file-watch polling being disabled on a platform that needs it.
+
 ### `GET /api/projects/:id/worktrees/:slug/probe`
 
 ```json
@@ -271,6 +321,20 @@ through Traefik. `reachable: false` means no response at all; a `404`/`502` with
 
 ```json
 { "logs": "…demultiplexed container output…" }
+```
+
+### `GET /api/projects/:id/worktrees/:slug/logs/json?tail=200`
+
+Structured tail for programmatic readers: timestamps, stdout/stderr separated, ANSI
+stripped. No parsing required.
+
+```json
+{
+  "lines": [
+    { "ts": "2026-08-17T12:22:02.816Z", "stream": "stdout", "text": "VITE v6.4.3 ready in 818 ms" }
+  ],
+  "count": 1
+}
 ```
 
 ### `GET /api/projects/:id/worktrees/:slug/logs/stream`

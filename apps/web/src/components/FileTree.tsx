@@ -11,50 +11,45 @@ import { ErrorBox, Spinner } from './ui'
 export function FileTree({ projectId, slug }: { projectId: string; slug: string }) {
   const [cache, setCache] = useState<Record<string, DirEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']))
-  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
   const [file, setFile] = useState<FileContent | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // No loading-flag state: "expanded but not in the cache yet" already means
+  // loading, and deriving it avoids a synchronous setState before the fetch.
   const load = useCallback(
     async (dir: string) => {
-      setLoadingPaths((prev) => new Set(prev).add(dir))
       try {
         const res = await api.files(projectId, slug, dir, showAll)
         setCache((prev) => ({ ...prev, [dir]: res.entries }))
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
-      } finally {
-        setLoadingPaths((prev) => {
-          const next = new Set(prev)
-          next.delete(dir)
-          return next
-        })
       }
     },
     [projectId, slug, showAll],
   )
 
-  // Reset everything when the worktree or the noise filter changes.
+  // Only the fetch lives in the effect. The component is mounted with a key of
+  // the worktree slug, so switching worktrees remounts it; the noise filter is a
+  // user action and resets state in its own handler below.
   useEffect(() => {
-    setCache({})
-    setExpanded(new Set(['']))
-    setSelected(null)
-    setFile(null)
+    // `load` awaits the request before touching state, so nothing is set
+    // synchronously here; the rule cannot see past the async boundary.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load('')
-  }, [projectId, slug, showAll, load])
+  }, [load])
 
   const toggleDir = (dir: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(dir)) next.delete(dir)
-      else {
-        next.add(dir)
-        if (!cache[dir]) void load(dir)
-      }
-      return next
-    })
+    // The fetch is kicked off here rather than inside the setState updater: an
+    // updater must be pure, and React may call it more than once.
+    const opening = !expanded.has(dir)
+    if (opening && !cache[dir]) void load(dir)
+
+    const next = new Set(expanded)
+    if (opening) next.add(dir)
+    else next.delete(dir)
+    setExpanded(next)
   }
 
   const openFile = async (path: string) => {
@@ -70,11 +65,11 @@ export function FileTree({ projectId, slug }: { projectId: string; slug: string 
   const renderDir = (dir: string, depth: number) => {
     const entries = cache[dir]
     if (!entries) {
-      return loadingPaths.has(dir) ? (
+      return (
         <div className="tree-row" style={{ paddingLeft: depth * 14 + 10 }}>
           <Spinner />
         </div>
-      ) : null
+      )
     }
     return entries.map((entry) => {
       const isOpen = expanded.has(entry.path)
@@ -99,7 +94,17 @@ export function FileTree({ projectId, slug }: { projectId: string; slug: string 
   return (
     <div className="file-tree">
       <label className="checkbox" style={{ padding: '8px 10px' }}>
-        <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={showAll}
+          onChange={(e) => {
+            setCache({})
+            setExpanded(new Set(['']))
+            setSelected(null)
+            setFile(null)
+            setShowAll(e.target.checked)
+          }}
+        />
         show node_modules & build output
       </label>
       <ErrorBox message={error} />

@@ -478,6 +478,8 @@ export interface LogLine {
 // emit these constantly and they are pure noise to a model reading a failure.
 // Written with explicit escapes rather than literal control bytes so the source
 // survives editors, linters and diff tools intact.
+// Matching control characters is the entire purpose of an ANSI stripper.
+// eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b[@-Z\\-_]|\u009b[0-9;?]*[ -/]*[@-~]/g
 
 export function stripAnsi(text: string): string {

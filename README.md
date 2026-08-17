@@ -18,6 +18,12 @@ branches. Review a PR and your own work side by side in two tabs.
 ## Quick start
 
 ```bash
+npx worktree-optimiser          # once published to npm
+```
+
+Or from a clone:
+
+```bash
 npm install
 npm run build
 npm start            # dashboard + API on http://localhost:7777
@@ -122,9 +128,14 @@ poll it for readiness, and read its logs without a human driving the dashboard.
 claude mcp add worktree-optimiser -- node /abs/path/to/worktree-optimiser/apps/mcp/dist/index.js
 ```
 
-Ten tools by default: `list_projects`, `list_worktrees`, `list_branches`,
-`probe_worktree`, `get_logs`, `get_diff`, `create_worktree`, `start_worktree`,
-`stop_worktree`, `restart_worktree`. All read-only or reversible.
+Eleven tools by default: `list_projects`, `list_worktrees`, `list_branches`,
+`probe_worktree`, `diagnose_worktree`, `get_logs`, `get_diff`, `create_worktree`,
+`start_worktree`, `stop_worktree`, `restart_worktree`. All read-only or reversible.
+
+`diagnose_worktree` is the one that earns its keep: it reads what the container is
+actually listening on and returns a named cause — `bound-to-loopback`,
+`port-mismatch` (naming the correct port), `installing`, `oom-killed` — instead of
+leaving an agent to guess from a 502.
 
 `delete_worktree` is **not registered** unless `WT_MCP_ALLOW_DESTRUCTIVE=true`. An agent
 that can delete a worktree can destroy uncommitted work irrecoverably, so the default is
@@ -147,6 +158,8 @@ Full details in **[docs/mcp.md](docs/mcp.md)**.
 - Orphaned containers (worktree deleted behind the tool's back) are surfaced, not hidden.
 - Every container is capped (2 CPUs, 4GB by default), so a dozen bundlers cannot take the
   machine down. Exceeding the cap kills one worktree, visibly, instead of freezing the host.
+- Optional idle stop (`WT_IDLE_STOP_MINUTES`, off by default) only ever *stops* a container.
+  The worktree, its branch and its dependency volumes are untouched.
 
 ---
 
@@ -172,6 +185,7 @@ POST   /api/projects/:id/worktrees/:slug/stop
 POST   /api/projects/:id/worktrees/:slug/restart
 DELETE /api/projects/:id/worktrees/:slug?force&keepWorktree
 GET    /api/projects/:id/worktrees/:slug/probe
+GET    /api/projects/:id/worktrees/:slug/diagnose             named cause + fix
 GET    /api/projects/:id/worktrees/:slug/logs?tail=N
 GET    /api/projects/:id/worktrees/:slug/logs/json?tail=N     structured, ANSI stripped
 GET    /api/projects/:id/worktrees/:slug/logs/stream          SSE

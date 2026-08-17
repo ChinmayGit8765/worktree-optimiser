@@ -76,6 +76,13 @@ export const PORT_RANGE: [number, number] = (() => {
 export const DEFAULT_CPUS = Number(process.env.WT_DEFAULT_CPUS ?? 2)
 export const DEFAULT_MEMORY_MB = Number(process.env.WT_DEFAULT_MEMORY_MB ?? 4096)
 
+/**
+ * Stop a worktree container after this many minutes with no requests through the
+ * proxy. 0 disables it. Off by default because stopping something a user is
+ * still thinking about is worse than the memory it was holding.
+ */
+export const IDLE_STOP_MINUTES = Number(process.env.WT_IDLE_STOP_MINUTES ?? 0)
+
 /** Publishing a direct port per worktree can be turned off if you only want hostnames. */
 export const PORT_FALLBACK = process.env.WT_PORT_FALLBACK !== 'false'
 

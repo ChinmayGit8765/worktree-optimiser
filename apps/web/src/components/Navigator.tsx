@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Worktree } from '../types'
 import { DiffView } from './DiffView'
 import { FileTree } from './FileTree'
@@ -102,7 +102,8 @@ export function Navigator({
   onStart: (slug: string) => void
 }) {
   const [split, setSplit] = useState<1 | 2>(1)
-  const [slugs, setSlugs] = useState<[string | null, string | null]>([null, null])
+  /** Explicit user choices. null means "whatever the default resolves to". */
+  const [chosen, setChosen] = useState<[string | null, string | null]>([null, null])
   const [focused, setFocused] = useState<0 | 1>(0)
   const [pathInput, setPathInput] = useState('/')
   const [appliedPath, setAppliedPath] = useState('/')
@@ -112,25 +113,28 @@ export function Navigator({
 
   const byslug = useMemo(() => new Map(worktrees.map((w) => [w.slug, w])), [worktrees])
 
-  // Seed the panes with whatever is running, without clobbering a manual choice.
-  useEffect(() => {
-    setSlugs(([a, b]) => {
-      const valid = (s: string | null) => (s && byslug.has(s) ? s : null)
-      let nextA = valid(a)
-      let nextB = valid(b)
-      if (!nextA) nextA = worktrees.find((w) => w.status === 'running')?.slug ?? worktrees[0]?.slug ?? null
-      if (!nextB) {
-        nextB =
-          worktrees.find((w) => w.status === 'running' && w.slug !== nextA)?.slug ??
-          worktrees.find((w) => w.slug !== nextA)?.slug ??
-          null
-      }
-      return a === nextA && b === nextB ? [a, b] : [nextA, nextB]
-    })
-  }, [worktrees, byslug])
+  /**
+   * Derived rather than synchronised into state by an effect. Storing a copy of
+   * something computable from props means an extra render pass on every change
+   * and a window where the two disagree; this just recomputes.
+   */
+  const slugs = useMemo<[string | null, string | null]>(() => {
+    const keep = (s: string | null) => (s && byslug.has(s) ? s : null)
+    const a =
+      keep(chosen[0]) ??
+      worktrees.find((w) => w.status === 'running')?.slug ??
+      worktrees[0]?.slug ??
+      null
+    const b =
+      keep(chosen[1]) ??
+      worktrees.find((w) => w.status === 'running' && w.slug !== a)?.slug ??
+      worktrees.find((w) => w.slug !== a)?.slug ??
+      null
+    return [a, b]
+  }, [chosen, worktrees, byslug])
 
   const assign = (slug: string) => {
-    setSlugs(([a, b]) => (focused === 0 ? [slug, b] : [a, slug]))
+    setChosen(([a, b]) => (focused === 0 ? [slug, b] : [a, slug]))
   }
 
   const applyPath = () => {
@@ -252,9 +256,19 @@ export function Navigator({
             </div>
             {focusedWorktree ? (
               tab === 'changes' ? (
-                <DiffView projectId={projectId} slug={focusedWorktree.slug} />
+                // Keyed on the worktree so switching remounts and resets, rather
+                // than clearing state from inside an effect.
+                <DiffView
+                  key={focusedWorktree.slug}
+                  projectId={projectId}
+                  slug={focusedWorktree.slug}
+                />
               ) : (
-                <FileTree projectId={projectId} slug={focusedWorktree.slug} />
+                <FileTree
+                  key={focusedWorktree.slug}
+                  projectId={projectId}
+                  slug={focusedWorktree.slug}
+                />
               )
             ) : (
               <div className="inspector-pad">No worktree selected.</div>

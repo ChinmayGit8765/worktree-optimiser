@@ -30,6 +30,7 @@ Copy `.env.example` to `.env`, or export these directly. Every value is optional
 | `WT_PORT_RANGE` | `31000-31999` | Range those ports are allocated from |
 | `WT_DEFAULT_CPUS` | `2` | Default CPU cap per container (0 = unlimited) |
 | `WT_DEFAULT_MEMORY_MB` | `4096` | Default memory cap per container (0 = unlimited) |
+| `WT_IDLE_STOP_MINUTES` | `0` | Stop a worktree after N minutes with no requests (0 = off) |
 | `WT_MANAGER_URL` | `http://localhost:7777` | Dev-only: Vite's proxy target |
 
 ### If port 80 is taken
@@ -53,6 +54,22 @@ Windows writes paths.
 | `unix` | unchanged | Linux / macOS (default elsewhere) |
 
 Auto-detected from the platform. Override only if binds fail with "invalid mount path".
+
+### Idle stop
+
+Off by default. Set `WT_IDLE_STOP_MINUTES=30` and any worktree that has served no
+request through the proxy for 30 minutes is stopped.
+
+It only ever stops. The worktree, its branch and its `node_modules` volume all
+survive, so restarting is quick and nothing is lost — which is why it is safe to
+leave on. Activity is read from Traefik's access log, which records the router name
+for every request; that name is the container name, so it maps back exactly.
+
+Last-seen times are held in memory. After a manager restart nothing has a recorded
+visit, so the clock starts fresh on first sight: every container gets a full idle
+window before it can be stopped. Measuring from the container's start time instead
+would reap a long-running container the moment the manager restarted, even if it had
+been in use seconds earlier.
 
 ## Project configuration
 

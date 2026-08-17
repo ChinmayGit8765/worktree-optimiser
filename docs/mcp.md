@@ -45,7 +45,7 @@ Or by hand in `.mcp.json`:
 
 ## Tools
 
-Ten tools are registered by default. All are read-only or reversible.
+Eleven tools are registered by default. All are read-only or reversible.
 
 | Tool | Effect | Notes |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ Ten tools are registered by default. All are read-only or reversible.
 | `list_worktrees` | read | Branch, container status, both URLs, dirty flag, HEAD |
 | `list_branches` | read | Local + remote; flags which already occupy a worktree |
 | `probe_worktree` | read | Readiness through the proxy, as a browser sees it |
+| `diagnose_worktree` | read | *Why* it is not serving, in actionable terms |
 | `get_logs` | read | Structured tail: timestamps, stdout/stderr split, ANSI stripped |
 | `get_diff` | read | Ahead/behind plus committed and uncommitted file lists |
 | `create_worktree` | additive | Materialise a branch and start its container |
@@ -80,7 +81,8 @@ list_branches                  -> find a branch not already checked out
 create_worktree                -> returns immediately; container is booting
 probe_worktree (poll)          -> wait for status 200
    ... on failure:
-get_logs (stream: "stderr")    -> read the actual error
+diagnose_worktree              -> the named cause, not a bare 502
+get_logs (stream: "stderr")    -> the actual error text
 get_diff                       -> confirm the edit is where you think it is
 stop_worktree                  -> when finished
 ```
@@ -88,6 +90,25 @@ stop_worktree                  -> when finished
 `create_worktree` returns as soon as the container **starts**, not when the dev server
 is **ready** — dependencies install asynchronously and a cold install is slow. Poll
 `probe_worktree` rather than assuming.
+
+## diagnose_worktree
+
+`probe_worktree` says whether it works. `diagnose_worktree` says why it doesn't,
+by reading `/proc/net/tcp` inside the container rather than inferring from the
+proxy's response. That distinguishes cases which look identical from outside:
+
+| Code | Meaning |
+| --- | --- |
+| `installing` | Cold dependency install in progress; wait |
+| `not-listening` | Running, but nothing bound yet — still booting, or the dev command exited |
+| `bound-to-loopback` | Listening on 127.0.0.1 only, so the proxy can never reach it |
+| `port-mismatch` | Listening on a different port; the response names the right one |
+| `container-exited` | Stopped, with the exit code and last stderr line |
+| `oom-killed` | Exceeded its memory cap |
+| `proxy-down` | The app is fine; Traefik is not running |
+| `unreachable` | Listening correctly but the proxy still did not get a 200 |
+
+Prefer it over guessing from logs — it returns the fix, not just the symptom.
 
 ## Interpreting probe results
 

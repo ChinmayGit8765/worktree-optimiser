@@ -22,12 +22,15 @@ export function LogPanel({
   const [follow, setFollow] = useState(true)
   const bodyRef = useRef<HTMLDivElement>(null)
   const followRef = useRef(follow)
-  followRef.current = follow
-
+  // Mirrored in an effect rather than during render: a render can be discarded,
+  // and mutating a ref while that happens is not safe.
   useEffect(() => {
-    setLines([])
-    setConnected(false)
+    followRef.current = follow
+  }, [follow])
 
+  // Mounted with a key of the worktree slug, so a different worktree remounts
+  // this component and clears the buffer without an in-effect reset.
+  useEffect(() => {
     const source = new EventSource(api.logsUrl(projectId, worktree.slug))
     source.onopen = () => setConnected(true)
     source.onerror = () => setConnected(false)

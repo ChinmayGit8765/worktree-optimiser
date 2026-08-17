@@ -25,8 +25,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Written in an effect, not during render: mutating a ref while rendering is
+  // unsafe under concurrent rendering, where a render can be discarded.
   const activeIdRef = useRef(activeId)
-  activeIdRef.current = activeId
+  useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
 
   const setBusy = useCallback((slug: string, busy: boolean) => {
     setBusySlugs((prev) => {
@@ -66,9 +70,14 @@ export default function App() {
   // Poll the active project so container state stays honest without a refresh.
   useEffect(() => {
     if (!activeId) {
-      setWorktrees([])
+      // Deferred rather than called synchronously in the effect body, which would
+      // cascade an extra render pass.
+      queueMicrotask(() => setWorktrees([]))
       return
     }
+    // refreshWorktrees awaits the request before touching state, so this is not
+    // a synchronous setState; the rule cannot see through the async boundary.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshWorktrees(activeId)
     const timer = setInterval(() => {
       void refreshWorktrees(activeId)
@@ -272,6 +281,7 @@ export default function App() {
 
       {logWorktree && activeProject && (
         <LogPanel
+          key={logWorktree.slug}
           projectId={activeProject.id}
           worktree={logWorktree}
           onClose={() => setLogSlug(null)}

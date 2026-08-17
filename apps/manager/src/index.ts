@@ -12,6 +12,7 @@ import {
   isLoopbackHost,
 } from './config.js'
 import { dockerReady, ensureTraefik } from './docker.js'
+import { IdleReaper } from './idle.js'
 import { registerRoutes } from './routes.js'
 import { allowedOrigins, registerSecurity } from './security.js'
 
@@ -72,6 +73,9 @@ if (ready.ok) {
   app.log.warn(`Docker is not reachable: ${ready.error}`)
 }
 
+const idleReaper = new IdleReaper(app.log)
+if (ready.ok) idleReaper.start()
+
 await app.listen({ port: MANAGER_PORT, host: BIND_HOST })
 app.log.info(`Manager dashboard: http://localhost:${MANAGER_PORT}`)
 app.log.info(
@@ -82,6 +86,7 @@ app.log.info(
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     app.log.info(`${signal} received, shutting down`)
+    idleReaper.stop()
     // Worktree containers deliberately keep running: the manager is a control
     // plane, not a supervisor. Restarting it must not kill anyone's dev server.
     void app.close().then(() => process.exit(0))

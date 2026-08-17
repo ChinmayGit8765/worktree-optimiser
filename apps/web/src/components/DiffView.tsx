@@ -10,6 +10,12 @@ interface Selection {
   origin: Origin
 }
 
+/**
+ * Mounted with a `key` of the worktree slug, so switching worktrees remounts and
+ * resets naturally. That is why nothing here clears state in an effect: doing so
+ * costs an extra render pass and is what the key is for.
+ */
+
 /** Unified-diff renderer. Colours by leading character; no syntax highlighting. */
 function Patch({ text }: { text: string }) {
   const lines = text.split(/\r?\n/)
@@ -61,20 +67,19 @@ export function DiffView({ projectId, slug }: { projectId: string; slug: string 
   const [summary, setSummary] = useState<DiffSummary | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
   const [patch, setPatch] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [patchLoading, setPatchLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Derived, not stored: a separate loading flag would need a synchronous
+  // setState inside the effect to stay in step with the fetch.
+  const loading = summary === null && error === null
+  const patchLoading = selected !== null && patch === null
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    setSelected(null)
-    setPatch(null)
     api
       .diff(projectId, slug)
       .then((res) => !cancelled && setSummary(res))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
@@ -83,7 +88,6 @@ export function DiffView({ projectId, slug }: { projectId: string; slug: string 
   useEffect(() => {
     if (!selected) return
     let cancelled = false
-    setPatchLoading(true)
     api
       .patch(projectId, slug, {
         path: selected.file.path,
@@ -92,13 +96,23 @@ export function DiffView({ projectId, slug }: { projectId: string; slug: string 
       })
       .then((res) => !cancelled && setPatch(res.patch))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => !cancelled && setPatchLoading(false))
     return () => {
       cancelled = true
     }
   }, [projectId, slug, selected])
 
-  if (loading) return <div className="inspector-pad"><Spinner /></div>
+  const select = (file: FileChange, origin: Origin) => {
+    setPatch(null)
+    setSelected({ file, origin })
+  }
+
+  if (loading) {
+    return (
+      <div className="inspector-pad">
+        <Spinner />
+      </div>
+    )
+  }
 
   return (
     <div className="diff-view">
@@ -119,7 +133,7 @@ export function DiffView({ projectId, slug }: { projectId: string; slug: string 
                   key={`w-${f.path}`}
                   file={f}
                   active={selected?.origin === 'working' && selected.file.path === f.path}
-                  onClick={() => setSelected({ file: f, origin: 'working' })}
+                  onClick={() => select(f, 'working')}
                 />
               ))}
             </>
@@ -127,13 +141,15 @@ export function DiffView({ projectId, slug }: { projectId: string; slug: string 
 
           {summary.committed.length > 0 && (
             <>
-              <div className="group-label">Committed vs {summary.base} ({summary.committed.length})</div>
+              <div className="group-label">
+                Committed vs {summary.base} ({summary.committed.length})
+              </div>
               {summary.committed.map((f) => (
                 <ChangeRow
                   key={`c-${f.path}`}
                   file={f}
                   active={selected?.origin === 'committed' && selected.file.path === f.path}
-                  onClick={() => setSelected({ file: f, origin: 'committed' })}
+                  onClick={() => select(f, 'committed')}
                 />
               ))}
             </>
@@ -151,7 +167,9 @@ export function DiffView({ projectId, slug }: { projectId: string; slug: string 
         <div className="patch-wrap">
           <div className="patch-head">{selected.file.path}</div>
           {patchLoading ? (
-            <div className="inspector-pad"><Spinner /></div>
+            <div className="inspector-pad">
+              <Spinner />
+            </div>
           ) : patch ? (
             <Patch text={patch} />
           ) : (

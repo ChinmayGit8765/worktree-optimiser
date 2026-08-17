@@ -8,9 +8,9 @@ export function DoctorPanel({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const run = () => {
-    setLoading(true)
-    setError(null)
+  // Split so the mount effect never calls setState synchronously: `loading`
+  // already starts true, and only the Re-run button needs to set it again.
+  const load = () =>
     fetch('/api/system/doctor')
       .then((r) => r.json())
       .then((r: DoctorReport & { error?: string }) => {
@@ -19,9 +19,18 @@ export function DoctorPanel({ onClose }: { onClose: () => void }) {
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false))
+
+  const rerun = () => {
+    setLoading(true)
+    setError(null)
+    void load()
   }
 
-  useEffect(run, [])
+  // Mount only. `loading` already starts true and `load` touches state only after
+  // the request resolves, so nothing is set synchronously here.
+  useEffect(() => {
+    void load()
+  }, [])
 
   const failures = report?.checks.filter((c) => c.status === 'fail').length ?? 0
   const warnings = report?.checks.filter((c) => c.status === 'warn').length ?? 0
@@ -35,7 +44,7 @@ export function DoctorPanel({ onClose }: { onClose: () => void }) {
           <span style={{ flex: 1, fontSize: 12, color: 'var(--text-faint)' }}>
             {report ? `${report.platform} · also available as \`npm run doctor\`` : ''}
           </span>
-          <button className="btn" onClick={run} disabled={loading}>
+          <button className="btn" onClick={rerun} disabled={loading}>
             {loading ? <Spinner /> : 'Re-run'}
           </button>
           <button className="btn primary" onClick={onClose}>
