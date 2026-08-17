@@ -10,6 +10,31 @@ export const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json')
 
 /** Dashboard + API. */
 export const MANAGER_PORT = Number(process.env.WT_PORT ?? 7777)
+
+/**
+ * Loopback by default, deliberately. This process deletes host directories and
+ * serves file contents from any registered repo; exposing it to a network is an
+ * explicit opt-in that also requires a token (enforced in index.ts).
+ */
+export const BIND_HOST = process.env.WT_HOST ?? '127.0.0.1'
+/** Interface Traefik publishes worktree ports on. Same reasoning. */
+export const PROXY_BIND_HOST = process.env.WT_HTTP_BIND ?? '127.0.0.1'
+export const AUTH_TOKEN = process.env.WT_TOKEN || null
+
+export function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost' || host === '[::1]'
+}
+
+/** Host header values the manager will answer to. Guards against DNS rebinding. */
+export const ALLOWED_HOSTS: string[] = (() => {
+  const extra = process.env.WT_ALLOWED_HOSTS?.split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+  const base = ['localhost', '127.0.0.1', '[::1]', '::1']
+  if (!isLoopbackHost(BIND_HOST)) base.push(BIND_HOST.toLowerCase())
+  return [...new Set([...base, ...(extra ?? [])])]
+})()
+
 /** Host port Traefik listens on; every worktree URL uses this. */
 export const HTTP_PORT = Number(process.env.WT_HTTP_PORT ?? 80)
 export const TRAEFIK_DASHBOARD_PORT = Number(process.env.WT_TRAEFIK_DASHBOARD_PORT ?? 8088)

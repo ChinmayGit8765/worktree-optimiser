@@ -3,9 +3,32 @@ import fs from 'node:fs'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import fastifyStatic from '@fastify/static'
-import { MANAGER_PORT, REPO_ROOT } from './config.js'
+import {
+  AUTH_TOKEN,
+  BIND_HOST,
+  MANAGER_PORT,
+  PROXY_BIND_HOST,
+  REPO_ROOT,
+  isLoopbackHost,
+} from './config.js'
 import { dockerReady, ensureTraefik } from './docker.js'
 import { registerRoutes } from './routes.js'
+import { allowedOrigins, registerSecurity } from './security.js'
+
+// Refuse to expose destructive, unauthenticated endpoints to a network. This is a
+// hard failure rather than a warning: a warning in a scrollback buffer is not a
+// security control.
+if (!isLoopbackHost(BIND_HOST) && !AUTH_TOKEN) {
+  console.error(
+    `\nRefusing to start.\n\n` +
+      `  WT_HOST is set to "${BIND_HOST}", which is not loopback, but WT_TOKEN is unset.\n` +
+      `  The manager can delete directories on this host and read files from any\n` +
+      `  registered repository, so it must not be reachable from a network without\n` +
+      `  authentication.\n\n` +
+      `  Either unset WT_HOST (binds 127.0.0.1), or set WT_TOKEN to a secret value.\n`,
+  )
+  process.exit(1)
+}
 
 const app = Fastify({
   logger: {
@@ -17,7 +40,10 @@ const app = Fastify({
   },
 })
 
-await app.register(cors, { origin: true })
+// A strict allowlist, not `origin: true`. Reflective CORS would let any web page
+// you happen to visit read this API's responses over localhost.
+await app.register(cors, { origin: allowedOrigins(), credentials: false })
+registerSecurity(app)
 await registerRoutes(app)
 
 // The built dashboard, when it exists. In dev the Vite server proxies to us instead.
@@ -46,8 +72,12 @@ if (ready.ok) {
   app.log.warn(`Docker is not reachable: ${ready.error}`)
 }
 
-await app.listen({ port: MANAGER_PORT, host: '0.0.0.0' })
+await app.listen({ port: MANAGER_PORT, host: BIND_HOST })
 app.log.info(`Manager dashboard: http://localhost:${MANAGER_PORT}`)
+app.log.info(
+  `Bound to ${BIND_HOST}; proxy publishes worktrees on ${PROXY_BIND_HOST}` +
+    (AUTH_TOKEN ? ' (token required)' : ''),
+)
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {

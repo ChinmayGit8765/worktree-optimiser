@@ -7,6 +7,7 @@ import {
   HTTP_PORT,
   LABEL,
   NETWORK,
+  PROXY_BIND_HOST,
   TRAEFIK_CONTAINER,
   TRAEFIK_DASHBOARD_PORT,
   TRAEFIK_IMAGE,
@@ -56,9 +57,14 @@ export async function ensureTraefik(): Promise<void> {
   const existing = await findContainer(TRAEFIK_CONTAINER)
   if (existing) {
     const info = await existing.inspect()
-    if (info.State.Running) return
-    await existing.start()
-    return
+    // A proxy left over from an older config may still be published on 0.0.0.0,
+    // which would silently keep every worktree exposed to the network after the
+    // setting was tightened. Recreate it rather than adopting it.
+    if (proxyBindingsMatch(info)) {
+      if (!info.State.Running) await existing.start()
+      return
+    }
+    await destroyContainer(existing, { removeVolumes: false })
   }
 
   await ensureImage(TRAEFIK_IMAGE)
@@ -80,14 +86,34 @@ export async function ensureTraefik(): Promise<void> {
     HostConfig: {
       Binds: [dockerSocketBind()],
       PortBindings: {
-        '80/tcp': [{ HostPort: String(HTTP_PORT) }],
-        '8080/tcp': [{ HostPort: String(TRAEFIK_DASHBOARD_PORT) }],
+        // HostIp matters: omitting it binds 0.0.0.0 and puts every worktree dev
+        // server on the local network.
+        '80/tcp': [{ HostIp: PROXY_BIND_HOST, HostPort: String(HTTP_PORT) }],
+        '8080/tcp': [{ HostIp: PROXY_BIND_HOST, HostPort: String(TRAEFIK_DASHBOARD_PORT) }],
       },
       RestartPolicy: { Name: 'unless-stopped' },
     },
     NetworkingConfig: { EndpointsConfig: { [NETWORK]: {} } },
   })
   await container.start()
+}
+
+/** True when the running proxy already publishes the ports we want, on the interface we want. */
+function proxyBindingsMatch(info: Docker.ContainerInspectInfo): boolean {
+  const bindings = info.HostConfig?.PortBindings as
+    | Record<string, Array<{ HostIp?: string; HostPort?: string }> | undefined>
+    | undefined
+  if (!bindings) return false
+
+  const check = (containerPort: string, wantPort: number): boolean => {
+    const entries = bindings[containerPort]
+    if (!entries || entries.length === 0) return false
+    return entries.some(
+      (e) => (e.HostIp || '0.0.0.0') === PROXY_BIND_HOST && e.HostPort === String(wantPort),
+    )
+  }
+
+  return check('80/tcp', HTTP_PORT) && check('8080/tcp', TRAEFIK_DASHBOARD_PORT)
 }
 
 export async function traefikStatus(): Promise<ContainerStatus> {
