@@ -109,6 +109,27 @@ and an unusable one.
 
 ---
 
+## For coding agents (MCP)
+
+An MCP server ships with the repo, so Claude Code can create a worktree, start it,
+poll it for readiness, and read its logs without a human driving the dashboard.
+
+```bash
+claude mcp add worktree-optimiser -- node /abs/path/to/worktree-optimiser/apps/mcp/dist/index.js
+```
+
+Ten tools by default: `list_projects`, `list_worktrees`, `list_branches`,
+`probe_worktree`, `get_logs`, `get_diff`, `create_worktree`, `start_worktree`,
+`stop_worktree`, `restart_worktree`. All read-only or reversible.
+
+`delete_worktree` is **not registered** unless `WT_MCP_ALLOW_DESTRUCTIVE=true`. An agent
+that can delete a worktree can destroy uncommitted work irrecoverably, so the default is
+that the tool does not exist — a warning in a tool description is not an access control.
+
+Full details in **[docs/mcp.md](docs/mcp.md)**.
+
+---
+
 ## Safety rails
 
 - The primary checkout can never be removed — only its container stopped.
@@ -160,6 +181,7 @@ Request and response shapes in **[docs/api.md](docs/api.md)**.
 | [Architecture](docs/architecture.md) | How the pieces fit and why |
 | [Configuration](docs/configuration.md) | Environment + per-project settings |
 | [API reference](docs/api.md) | Every endpoint, with examples |
+| [MCP server](docs/mcp.md) | Driving worktrees from a coding agent |
 | [Troubleshooting](docs/troubleshooting.md) | 502s, dead hot reload, port conflicts |
 | [Kubernetes backend](docs/kubernetes.md) | Planned migration path (not implemented) |
 
@@ -177,6 +199,18 @@ Request and response shapes in **[docs/api.md](docs/api.md)**.
 
 ---
 
+## Security
+
+The manager deletes directories on the host and serves file contents from any registered
+repo, so it binds `127.0.0.1` only, and Traefik publishes worktree ports on loopback too.
+Exposing it to a network (`WT_HOST`) requires a token (`WT_TOKEN`) — the process refuses
+to start otherwise. CORS is a strict allowlist rather than reflective, and a Host-header
+allowlist blocks DNS rebinding. See [configuration](docs/configuration.md).
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
 ## Layout
 
 ```
@@ -191,5 +225,6 @@ apps/manager/src/
   paths.ts       host → container bind path conversion
   slug.ts        branch → stable DNS-safe slug
 apps/web/src/    React dashboard
+apps/mcp/src/    MCP server for coding agents
 docker/          standalone Traefik compose file
 ```

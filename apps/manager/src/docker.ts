@@ -426,6 +426,82 @@ export async function containerLogs(
   return demuxDockerStream(buf)
 }
 
+export interface LogLine {
+  /** ISO timestamp from the docker daemon, or null for un-timestamped output. */
+  ts: string | null
+  stream: 'stdout' | 'stderr'
+  text: string
+}
+
+// CSI sequences (colour, cursor moves) plus two-character escapes. Dev servers
+// emit these constantly and they are pure noise to a model reading a failure.
+// Written with explicit escapes rather than literal control bytes so the source
+// survives editors, linters and diff tools intact.
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b[@-Z\\-_]|\u009b[0-9;?]*[ -/]*[@-~]/g
+
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI, '')
+}
+
+/**
+ * A log tail a model can read: one object per line, ANSI removed, stdout and
+ * stderr distinguished. The SSE stream is the right shape for a human watching
+ * a build; it is the wrong shape for an agent trying to find out why a container
+ * died, which is what this is for.
+ */
+export async function containerLogsStructured(
+  projectId: string,
+  slug: string,
+  opts: { tail?: number } = {},
+): Promise<LogLine[]> {
+  const container = await findContainer(containerNameFor(projectId, slug))
+  if (!container) throw new HttpError(404, `No container for ${projectId}/${slug}`)
+
+  const buf = (await container.logs({
+    stdout: true,
+    stderr: true,
+    tail: opts.tail ?? 200,
+    timestamps: true,
+  })) as unknown as Buffer
+
+  const lines: LogLine[] = []
+  for (const frame of demuxFrames(buf)) {
+    for (const raw of frame.text.split(/\r?\n/)) {
+      if (!raw) continue
+      // `timestamps: true` prefixes each line with an RFC3339 stamp and a space.
+      const m = /^(\d{4}-\d{2}-\d{2}T[0-9:.]+Z?)\s([\s\S]*)$/.exec(raw)
+      const text = stripAnsi(m ? m[2]! : raw).trimEnd()
+      if (!text) continue
+      lines.push({ ts: m ? m[1]! : null, stream: frame.stream, text })
+    }
+  }
+  return lines
+}
+
+/** Split a docker multiplexed stream into frames, keeping the stream id. */
+function demuxFrames(buf: Buffer): Array<{ stream: 'stdout' | 'stderr'; text: string }> {
+  if (buf.length === 0) return []
+
+  const framed = buf.length >= 8 && buf[0]! <= 2 && buf[1] === 0 && buf[2] === 0 && buf[3] === 0
+  if (!framed) return [{ stream: 'stdout', text: buf.toString('utf8') }]
+
+  const out: Array<{ stream: 'stdout' | 'stderr'; text: string }> = []
+  let offset = 0
+  while (offset + 8 <= buf.length) {
+    const streamId = buf[offset]!
+    const length = buf.readUInt32BE(offset + 4)
+    const start = offset + 8
+    const end = Math.min(start + length, buf.length)
+    out.push({
+      stream: streamId === 2 ? 'stderr' : 'stdout',
+      text: buf.subarray(start, end).toString('utf8'),
+    })
+    offset = end
+    if (length === 0 && end === start) break
+  }
+  return out
+}
+
 export async function followContainerLogs(
   projectId: string,
   slug: string,

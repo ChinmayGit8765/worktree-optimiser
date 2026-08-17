@@ -11,6 +11,7 @@ import {
 import { candidateToConfig, detectProject } from './detect.js'
 import {
   containerLogs,
+  containerLogsStructured,
   dockerReady,
   dockerVersion,
   ensureTraefik,
@@ -396,6 +397,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await requireProject(id)
     const { tail } = parse(LogsQuery, req.query)
     return { logs: await containerLogs(id, slug, { tail }) }
+  })
+
+  /**
+   * Structured tail for programmatic readers (the MCP server, CI checks).
+   * Timestamped, split by stream, ANSI stripped — no parsing required.
+   */
+  app.get('/api/projects/:id/worktrees/:slug/logs/json', async (req: FastifyRequest) => {
+    const { id, slug } = parse(WorktreeParams, req.params)
+    await requireProject(id)
+    const { tail } = parse(LogsQuery, req.query)
+    const lines = await containerLogsStructured(id, slug, { tail })
+    return { lines, count: lines.length }
   })
 
   // Server-sent events rather than websockets: log tailing is one-directional,
