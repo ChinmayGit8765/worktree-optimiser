@@ -53,6 +53,25 @@ export function WorktreeCard({
         )}
       </div>
 
+      {/*
+        The direct loopback URL. Always works, even where *.localhost does not
+        resolve, so it is shown rather than hidden behind a tooltip.
+      */}
+      {worktree.localUrl && (
+        <div className="card-url alt">
+          {running ? (
+            <a href={worktree.localUrl} target="_blank" rel="noreferrer">
+              {worktree.localUrl.replace(/^https?:\/\//, '')}
+            </a>
+          ) : (
+            <span style={{ color: 'var(--text-faint)' }}>
+              {worktree.localUrl.replace(/^https?:\/\//, '')}
+            </span>
+          )}
+          <span className="badge">direct</span>
+        </div>
+      )}
+
       <div className="card-actions">
         {running ? (
           <button className="btn sm" onClick={actions.onStop} disabled={busy}>

@@ -7,6 +7,7 @@ import {
   HTTP_PORT,
   LABEL,
   NETWORK,
+  PORT_FALLBACK,
   PROXY_BIND_HOST,
   TRAEFIK_CONTAINER,
   TRAEFIK_DASHBOARD_PORT,
@@ -15,6 +16,7 @@ import {
   hostnameFor,
 } from './config.js'
 import { containerPath, dockerSocketBind, toBindPath } from './paths.js'
+import { allocatePort } from './ports.js'
 import { HttpError } from './store.js'
 import type { ContainerStatus, ProjectConfig } from './types.js'
 
@@ -259,7 +261,22 @@ export interface UpOptions {
   recreate?: boolean
 }
 
-export async function upWorktree(opts: UpOptions): Promise<{ containerId: string; created: boolean }> {
+/** Ports already claimed by managed containers, so allocation never double-books. */
+export async function reservedHostPorts(excludeSlug?: string): Promise<number[]> {
+  const containers = await listManagedContainers()
+  const ports: number[] = []
+  for (const c of containers) {
+    if (excludeSlug && c.Labels?.[LABEL.slug] === excludeSlug) continue
+    const raw = c.Labels?.[LABEL.hostPort]
+    const port = raw ? Number(raw) : NaN
+    if (Number.isInteger(port)) ports.push(port)
+  }
+  return ports
+}
+
+export async function upWorktree(
+  opts: UpOptions,
+): Promise<{ containerId: string; created: boolean; hostPort: number | null }> {
   const { project, branch, slug, hostPath, recreate = false } = opts
   await ensureTraefik()
 
@@ -274,10 +291,23 @@ export async function upWorktree(opts: UpOptions): Promise<{ containerId: string
   if (container) {
     const info = await container.inspect()
     if (!info.State.Running) await container.start()
-    return { containerId: info.Id, created: false }
+    const existingPort = Number(info.Config?.Labels?.[LABEL.hostPort])
+    return {
+      containerId: info.Id,
+      created: false,
+      hostPort: Number.isInteger(existingPort) ? existingPort : null,
+    }
   }
 
   await ensureImage(project.image)
+
+  // Deterministic in the branch identity, so the URL survives restarts.
+  const hostPort = PORT_FALLBACK
+    ? await allocatePort({
+        key: `${project.id}/${slug}`,
+        reserved: await reservedHostPorts(slug),
+      })
+    : null
 
   const binds = [`${toBindPath(hostPath)}:/workspace`]
   for (const mountPath of project.volumePaths) {
@@ -300,11 +330,22 @@ export async function upWorktree(opts: UpOptions): Promise<{ containerId: string
       [LABEL.slug]: slug,
       [LABEL.hostPath]: hostPath,
       [LABEL.port]: String(project.containerPort),
+      ...(hostPort ? { [LABEL.hostPort]: String(hostPort) } : {}),
     },
     HostConfig: {
       Binds: binds,
       NetworkMode: NETWORK,
       Init: true,
+      // Published on loopback only, same reasoning as the proxy.
+      ...(hostPort
+        ? {
+            PortBindings: {
+              [`${project.containerPort}/tcp`]: [
+                { HostIp: PROXY_BIND_HOST, HostPort: String(hostPort) },
+              ],
+            },
+          }
+        : {}),
       // Deliberately no restart policy: a dev server that dies should stay dead
       // and visible in the dashboard rather than crash-looping quietly.
       RestartPolicy: { Name: 'no' },
@@ -313,7 +354,7 @@ export async function upWorktree(opts: UpOptions): Promise<{ containerId: string
   })
 
   await created.start()
-  return { containerId: created.id, created: true }
+  return { containerId: created.id, created: true, hostPort }
 }
 
 export async function stopWorktree(projectId: string, slug: string): Promise<boolean> {

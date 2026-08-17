@@ -40,10 +40,51 @@ import {
   stopAll,
 } from './worktrees.js'
 
-const ProjectParams = z.object({ id: z.string().min(1) })
-const WorktreeParams = z.object({ id: z.string().min(1), slug: z.string().min(1) })
+// Both of these end up in container names, Docker label filters and Traefik
+// router ids, so they are constrained to the shape slugify() produces rather
+// than accepted as free text.
+const Identifier = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[a-z0-9][a-z0-9-]*$/, 'must be lowercase alphanumeric with hyphens')
 
-const DetectBody = z.object({ repoPath: z.string().min(1) })
+const ProjectParams = z.object({ id: Identifier })
+const WorktreeParams = z.object({ id: Identifier, slug: Identifier })
+
+/**
+ * Query strings are always strings. `z.coerce.boolean()` is wrong here — it
+ * treats any non-empty value as true, so `?force=false` would delete.
+ */
+const QueryBool = z
+  .enum(['true', 'false', '1', '0'])
+  .optional()
+  .transform((v) => v === 'true' || v === '1')
+
+const RelPath = z.string().max(4096)
+
+const DetectBody = z.object({ repoPath: z.string().min(1).max(4096) })
+
+const StartBody = z
+  .object({ recreate: z.boolean().default(false) })
+  .nullish()
+  .transform((v) => v ?? { recreate: false })
+
+const DestroyQuery = z.object({ force: QueryBool, keepWorktree: QueryBool })
+
+const LogsQuery = z.object({
+  tail: z.coerce.number().int().min(1).max(10_000).default(400),
+})
+
+const FilesQuery = z.object({ path: RelPath.default(''), all: QueryBool })
+const FileQuery = z.object({ path: RelPath.min(1) })
+const DiffQuery = z.object({ base: z.string().min(1).max(255).optional() })
+const PatchQuery = z.object({
+  path: RelPath.min(1),
+  base: z.string().min(1).max(255).optional(),
+  origin: z.enum(['committed', 'working']).default('working'),
+  untracked: QueryBool,
+})
 
 const CreateProjectBody = z.object({
   repoPath: z.string().min(1),
@@ -250,7 +291,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/projects/:id/worktrees/:slug/start', async (req: FastifyRequest) => {
     const { id, slug } = parse(WorktreeParams, req.params)
     const project = await requireProject(id)
-    const recreate = Boolean((req.body as { recreate?: boolean } | undefined)?.recreate)
+    const { recreate } = parse(StartBody, req.body)
     return { worktree: await startWorktree(project, slug, recreate) }
   })
 
@@ -271,10 +312,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/projects/:id/worktrees/:slug', async (req: FastifyRequest) => {
     const { id, slug } = parse(WorktreeParams, req.params)
     const project = await requireProject(id)
-    const query = req.query as { force?: string; keepWorktree?: string }
+    const query = parse(DestroyQuery, req.query)
     await destroyWorktree(project, slug, {
-      force: query.force === 'true',
-      keepWorktree: query.keepWorktree === 'true',
+      force: query.force,
+      keepWorktree: query.keepWorktree,
     })
     return { removed: true }
   })
@@ -302,15 +343,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/projects/:id/worktrees/:slug/files', async (req: FastifyRequest) => {
     const { id, slug } = parse(WorktreeParams, req.params)
-    const query = req.query as { path?: string; all?: string }
+    const query = parse(FilesQuery, req.query)
     const root = await worktreeRoot(id, slug)
-    return listDir(root, query.path ?? '', query.all === 'true')
+    return listDir(root, query.path, query.all)
   })
 
   app.get('/api/projects/:id/worktrees/:slug/file', async (req: FastifyRequest) => {
     const { id, slug } = parse(WorktreeParams, req.params)
-    const query = req.query as { path?: string }
-    if (!query.path) throw new HttpError(400, 'path is required')
+    const query = parse(FileQuery, req.query)
     const root = await worktreeRoot(id, slug)
     return readTextFile(root, query.path)
   })
@@ -322,7 +362,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (info.path === '(worktree missing)') {
       throw new HttpError(410, `The worktree directory for "${slug}" no longer exists.`)
     }
-    const query = req.query as { base?: string }
+    const query = parse(DiffQuery, req.query)
     const base = query.base || (await git.defaultBranch(project.repoPath))
     return git.diffSummary(info.path, base)
   })
@@ -334,35 +374,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (info.path === '(worktree missing)') {
       throw new HttpError(410, `The worktree directory for "${slug}" no longer exists.`)
     }
-    const query = req.query as {
-      path?: string
-      base?: string
-      origin?: string
-      untracked?: string
-    }
-    if (!query.path) throw new HttpError(400, 'path is required')
+    const query = parse(PatchQuery, req.query)
 
     // Validate the path against the worktree before handing it to git, so a
     // traversal attempt can't reach outside via `--` arguments.
     resolveInside(info.path, query.path)
 
     const base = query.base || (await git.defaultBranch(project.repoPath))
-    const origin: git.DiffOrigin = query.origin === 'committed' ? 'committed' : 'working'
     const patch = await git.filePatch(
       info.path,
       base,
       query.path,
-      origin,
-      query.untracked === 'true',
+      query.origin,
+      query.untracked,
     )
-    return { path: query.path, origin, base, patch }
+    return { path: query.path, origin: query.origin, base, patch }
   })
 
   app.get('/api/projects/:id/worktrees/:slug/logs', async (req: FastifyRequest) => {
     const { id, slug } = parse(WorktreeParams, req.params)
     await requireProject(id)
-    const tail = Number((req.query as { tail?: string }).tail ?? 400)
-    return { logs: await containerLogs(id, slug, { tail: Number.isFinite(tail) ? tail : 400 }) }
+    const { tail } = parse(LogsQuery, req.query)
+    return { logs: await containerLogs(id, slug, { tail }) }
   })
 
   // Server-sent events rather than websockets: log tailing is one-directional,

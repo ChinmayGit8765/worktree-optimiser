@@ -52,6 +52,22 @@ export const TRAEFIK_IMAGE = process.env.WT_TRAEFIK_IMAGE ?? 'traefik:v3.3'
 export const BASE_DOMAIN = process.env.WT_DOMAIN ?? 'localhost'
 export const ALT_DOMAIN = process.env.WT_ALT_DOMAIN ?? 'localtest.me'
 
+/**
+ * Loopback port range for the per-worktree direct URLs. 31000-31999 sits above
+ * the usual dev-server ports and below the ephemeral range on Windows (49152+),
+ * so it collides with neither.
+ */
+export const PORT_RANGE: [number, number] = (() => {
+  const m = /^(\d+)-(\d+)$/.exec(process.env.WT_PORT_RANGE ?? '')
+  if (!m) return [31000, 31999]
+  const lo = Number(m[1])
+  const hi = Number(m[2])
+  return hi > lo ? [lo, hi] : [31000, 31999]
+})()
+
+/** Publishing a direct port per worktree can be turned off if you only want hostnames. */
+export const PORT_FALLBACK = process.env.WT_PORT_FALLBACK !== 'false'
+
 export const LABEL = {
   managed: 'wt.managed',
   project: 'wt.project',
@@ -59,7 +75,13 @@ export const LABEL = {
   slug: 'wt.slug',
   hostPath: 'wt.hostPath',
   port: 'wt.port',
+  hostPort: 'wt.hostPort',
 } as const
+
+/** Direct loopback URL for a worktree, bypassing hostname resolution entirely. */
+export function localUrlFor(hostPort: number): string {
+  return `http://127.0.0.1:${hostPort}`
+}
 
 export function hostnameFor(slug: string, domain: string = BASE_DOMAIN): string {
   return `${slug}.${domain}`

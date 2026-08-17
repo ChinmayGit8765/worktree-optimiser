@@ -81,6 +81,10 @@ export interface WorktreeInfo {
   url: string
   /** Fallback URL that resolves via public DNS, for tools that don't do *.localhost. */
   altUrl: string
+  /** Published loopback port, or null when the port fallback is disabled. */
+  hostPort: number | null
+  /** Direct http://127.0.0.1:<port> URL — works regardless of hostname resolution. */
+  localUrl: string | null
   head: string | null
   dirty: boolean
   /** True when the worktree dir is the project's primary checkout (not removable). */

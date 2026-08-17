@@ -330,6 +330,13 @@ code,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+.card-url.alt {
+  margin-top: -6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  opacity: 0.85;
 }
 
 .card-actions {

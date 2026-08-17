@@ -37,6 +37,8 @@ export interface Worktree {
   health: string | null
   url: string
   altUrl: string
+  hostPort: number | null
+  localUrl: string | null
   head: string | null
   dirty: boolean
   primary: boolean

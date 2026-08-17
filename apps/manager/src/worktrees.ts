@@ -1,6 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { ALT_DOMAIN, BASE_DOMAIN, LABEL, containerNameFor, urlFor } from './config.js'
+import {
+  ALT_DOMAIN,
+  BASE_DOMAIN,
+  LABEL,
+  containerNameFor,
+  localUrlFor,
+  urlFor,
+} from './config.js'
 import * as git from './git.js'
 import {
   docker,
@@ -56,6 +63,10 @@ export async function listWorktreeInfos(project: ProjectConfig): Promise<Worktre
       health: extractHealth(container?.Status),
       url: urlFor(slug, BASE_DOMAIN),
       altUrl: urlFor(slug, ALT_DOMAIN),
+      hostPort: hostPortOf(container?.Labels),
+      localUrl: hostPortOf(container?.Labels)
+        ? localUrlFor(hostPortOf(container?.Labels)!)
+        : null,
       head,
       dirty,
       primary: isInside(project.repoPath, tree.path) && isInside(tree.path, project.repoPath),
@@ -80,6 +91,8 @@ export async function listWorktreeInfos(project: ProjectConfig): Promise<Worktre
       health: extractHealth(container.Status),
       url: urlFor(slug, BASE_DOMAIN),
       altUrl: urlFor(slug, ALT_DOMAIN),
+      hostPort: hostPortOf(container.Labels),
+      localUrl: hostPortOf(container.Labels) ? localUrlFor(hostPortOf(container.Labels)!) : null,
       head: null,
       dirty: false,
       primary: false,
@@ -92,6 +105,13 @@ export async function listWorktreeInfos(project: ProjectConfig): Promise<Worktre
     if (a.primary !== b.primary) return a.primary ? -1 : 1
     return a.branch.localeCompare(b.branch)
   })
+}
+
+/** The published loopback port, read back off the container label. */
+function hostPortOf(labels: Record<string, string> | undefined): number | null {
+  const raw = labels?.[LABEL.hostPort]
+  const port = raw ? Number(raw) : NaN
+  return Number.isInteger(port) ? port : null
 }
 
 function extractHealth(status: string | undefined): string | null {
