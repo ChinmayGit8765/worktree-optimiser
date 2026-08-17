@@ -15,9 +15,9 @@ jobs:
     name: lint, typecheck, unit tests, build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -42,9 +42,9 @@ jobs:
     # Separate job: needs a live Docker daemon, pulls images, and takes minutes.
     # A unit-test failure should be visible without waiting for it.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
