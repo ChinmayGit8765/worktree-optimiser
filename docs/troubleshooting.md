@@ -1,11 +1,53 @@
 # Troubleshooting
 
-Ordered roughly by how often each one bites.
+**Run `npm run doctor` first.** It checks Docker, ports, git, Node, hostname
+resolution and Docker Desktop file sharing, and every failure it reports comes with
+the fix. The same report is in the dashboard under **Doctor**.
+
+## Wildcard localhost hostnames do not resolve (the most common one)
+
+This is the single most likely reason the tool looks broken, and it is not a fault
+in your setup.
+
+`*.localhost` is loopback per RFC 6761, but that is a rule about *resolvers* -- and
+the OS resolver generally does not implement it. Measured on Windows 11:
+
+```
+ping probe.localhost          -> could not find host
+node dns.lookup(...)          -> ENOTFOUND
+curl http://main.localhost/   -> could not resolve host
+```
+
+Chromium and modern Firefox special-case these hostnames internally, so the
+dashboard links work in a browser while every scripted check fails. Nothing is
+misconfigured.
+
+**Use the direct URL instead.** Every worktree publishes a stable loopback port,
+shown on its card and returned as `localUrl`:
+
+```bash
+curl http://127.0.0.1:31832/
+```
+
+Or the `localtest.me` hostname, which resolves through public DNS:
+
+```bash
+curl http://main.localtest.me/
+```
+
+Or set the Host header explicitly:
+
+```bash
+curl -H "Host: main.localhost" http://127.0.0.1/
+```
+
+The direct port is deterministic per branch, so it is safe to bookmark or hardcode
+in a script.
 
 ## The container starts, logs look fine, the URL 502s
 
 **The dev server is bound to `127.0.0.1`.** Inside a container that means visible to
-nothing, including Traefik. This is the single most common failure.
+nothing, including Traefik. This is the most common failure once hostnames resolve.
 
 Check the logs — a dev server that's correct prints a network address:
 
@@ -149,21 +191,6 @@ Both volumes are needed:
 Workspace tooling hoists most dependencies to the root but leaves symlinks and some
 packages local. Missing either one produces resolution failures that look like a
 corrupted install.
-
-## `*.localhost` doesn't resolve in curl / Postman / a script
-
-Browsers resolve `*.localhost` to loopback per RFC 6761; most other clients don't. Use
-the alternate hostname, which resolves through public DNS:
-
-```bash
-curl http://main.localtest.me/
-```
-
-Or set the Host header explicitly:
-
-```bash
-curl -H "Host: main.localhost" http://127.0.0.1/
-```
 
 ## A container is running for a worktree I deleted
 

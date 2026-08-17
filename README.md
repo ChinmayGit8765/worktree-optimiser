@@ -27,7 +27,8 @@ Open <http://localhost:7777>, click **Add project**, point it at any local clone
 inspects the repo, proposes how to run it, and you confirm. Then **New worktree** for any
 branch.
 
-Requires Docker, Node 20+, git 2.20+. Full walkthrough in
+Requires Docker, Node 20+, git 2.20+. Run `npm run doctor` if anything misbehaves -- it
+checks the environment and names the fix for each failure. Full walkthrough in
 **[docs/getting-started.md](docs/getting-started.md)**.
 
 ---
@@ -100,8 +101,11 @@ nothing. The container starts, the logs look perfect, and you get a 502. Every f
 profile forces `0.0.0.0` explicitly, in whatever form that framework accepts.
 
 **inotify events don't cross the Windows/macOS → Linux container boundary**, so hot
-reload dies silently. Containers get polling watchers by default. Measured propagation on
-a Windows bind mount: **~1 second** from host write to updated response.
+reload dies silently. Containers get polling watchers by default. Two separate numbers,
+both measured on a Windows bind mount: a host write is **visible inside the container in
+~30ms** (the mount itself, asserted by the integration test), and a change reaches the
+**browser in ~1s** through Vite's polling watcher (a 300ms poll interval plus rebuild).
+Only the second involves polling; without it, it never arrives at all.
 
 `node_modules` and build caches (`.next`, `.nuxt`, `.angular`, …) live on named volumes
 rather than the bind mount. On Windows that is the difference between a usable dev server
@@ -141,6 +145,8 @@ Full details in **[docs/mcp.md](docs/mcp.md)**.
 - Worktrees are created in a sibling directory, never inside the repo, so they never
   appear as untracked files in the parent checkout.
 - Orphaned containers (worktree deleted behind the tool's back) are surfaced, not hidden.
+- Every container is capped (2 CPUs, 4GB by default), so a dozen bundlers cannot take the
+  machine down. Exceeding the cap kills one worktree, visibly, instead of freezing the host.
 
 ---
 
@@ -150,6 +156,7 @@ The dashboard is a client of the same REST API, so anything it does is scriptabl
 
 ```
 GET    /api/system
+GET    /api/system/doctor
 POST   /api/system/proxy
 GET    /api/projects
 POST   /api/projects/detect                        { repoPath } → proposal
@@ -166,7 +173,11 @@ POST   /api/projects/:id/worktrees/:slug/restart
 DELETE /api/projects/:id/worktrees/:slug?force&keepWorktree
 GET    /api/projects/:id/worktrees/:slug/probe
 GET    /api/projects/:id/worktrees/:slug/logs?tail=N
+GET    /api/projects/:id/worktrees/:slug/logs/json?tail=N     structured, ANSI stripped
 GET    /api/projects/:id/worktrees/:slug/logs/stream          SSE
+GET    /api/projects/:id/worktrees/:slug/files?path=
+GET    /api/projects/:id/worktrees/:slug/file?path=
+GET    /api/projects/:id/worktrees/:slug/diff?base=
 ```
 
 Request and response shapes in **[docs/api.md](docs/api.md)**.

@@ -21,6 +21,15 @@ Copy `.env.example` to `.env`, or export these directly. Every value is optional
 | `WT_BIND_STYLE` | auto | `win` \| `wsl` \| `unix` — bind path conversion |
 | `WT_DOCKER_SOCKET` | auto | Override the Docker socket path |
 | `WT_LOG_LEVEL` | `info` | Fastify/pino log level |
+| `WT_HOST` | `127.0.0.1` | Manager bind interface. Non-loopback requires `WT_TOKEN` |
+| `WT_TOKEN` | unset | Bearer token required for `/api/*` when set |
+| `WT_HTTP_BIND` | `127.0.0.1` | Interface Traefik publishes worktree ports on |
+| `WT_ALLOWED_HOSTS` | -- | Extra Host header values to accept (rebinding guard) |
+| `WT_ALLOWED_ORIGINS` | -- | Extra browser origins allowed to read API responses |
+| `WT_PORT_FALLBACK` | `true` | Publish a direct loopback port per worktree |
+| `WT_PORT_RANGE` | `31000-31999` | Range those ports are allocated from |
+| `WT_DEFAULT_CPUS` | `2` | Default CPU cap per container (0 = unlimited) |
+| `WT_DEFAULT_MEMORY_MB` | `4096` | Default memory cap per container (0 = unlimited) |
 | `WT_MANAGER_URL` | `http://localhost:7777` | Dev-only: Vite's proxy target |
 
 ### If port 80 is taken
@@ -65,6 +74,8 @@ any field afterwards through `PATCH /api/projects/:id`.
   "env": { "PORT": "5173" },
   "volumePaths": ["/workspace/node_modules"],
   "watchPolling": true,
+  "cpuLimit": 2,
+  "memoryLimitMb": 4096,
   "packageManager": "npm"
 }
 ```
@@ -84,6 +95,11 @@ its own — branches never share a `node_modules`.
 
 **`watchPolling`** forces polling file watchers. Required on Windows and macOS bind
 mounts. Set `false` on Linux, where inotify works natively and polling wastes CPU.
+
+**`cpuLimit` / `memoryLimitMb`** cap the container, applied by default so a handful of
+bundlers cannot starve the host; 0 disables either. Exceeding the memory cap kills the
+container with exit code 137, which shows in the dashboard rather than freezing the
+machine. 4096MB is deliberately generous -- bundlers routinely peak past 2GB.
 
 **`env`** is merged over the defaults (`HOST=0.0.0.0`, `PORT`, `FORCE_COLOR=1`) and under
 the polling variables. Use it for `NODE_ENV`, API base URLs, feature flags.
