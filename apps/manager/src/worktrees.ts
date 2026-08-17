@@ -9,7 +9,7 @@ import {
   removeWorktreeContainer,
   upWorktree,
 } from './docker.js'
-import { isInside } from './paths.js'
+import { assertInsideReal, isInside } from './paths.js'
 import { slugFor } from './slug.js'
 import { HttpError } from './store.js'
 import type { ProjectConfig, WorktreeInfo } from './types.js'
@@ -176,11 +176,16 @@ export async function destroyWorktree(
     return
   }
 
-  // Guard against a mis-set worktreesRoot turning a delete into a disaster.
-  if (!isInside(project.worktreesRoot, info.path)) {
+  // Guard against a mis-set worktreesRoot turning a delete into a disaster. The
+  // symlink-resolving variant matters here: a worktree directory that is itself a
+  // link to somewhere else would otherwise pass the lexical check and hand git a
+  // removal target outside the managed root.
+  try {
+    await assertInsideReal(project.worktreesRoot, info.path)
+  } catch {
     throw new HttpError(
       400,
-      `Worktree ${info.path} lives outside ${project.worktreesRoot}; remove it manually.`,
+      `Worktree ${info.path} resolves outside ${project.worktreesRoot}; remove it manually.`,
     )
   }
 

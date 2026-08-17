@@ -4,6 +4,20 @@
   "private": true,
   "type": "module",
   "description": "Run every git worktree of a repo as its own containerised dev server, behind one dashboard.",
+  "license": "MIT",
+  "author": "Chinmay Purohit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChinmayGit8765/worktree-optimiser.git"
+  },
+  "keywords": [
+    "git-worktree",
+    "docker",
+    "traefik",
+    "developer-tools",
+    "claude-code",
+    "mcp"
+  ],
   "workspaces": [
     "apps/manager",
     "apps/web"
@@ -16,6 +30,9 @@
     "dev:web": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web && npm run build --workspace apps/manager",
     "start": "npm run start --workspace apps/manager",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspace apps/manager",
+    "test:integration": "npm run test:integration --workspace apps/manager",
+    "doctor": "node apps/manager/dist/doctor-cli.js"
   }
 }

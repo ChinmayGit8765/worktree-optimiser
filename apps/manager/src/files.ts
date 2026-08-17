@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { isInside } from './paths.js'
+import { assertInsideReal, isInside, isSuspiciousRelative } from './paths.js'
 import { HttpError } from './store.js'
 
 /**
@@ -38,16 +38,35 @@ const NOISY = new Set([
 
 const MAX_FILE_BYTES = 512 * 1024
 
+/** Lexical guard. Use `resolveInsideReal` before touching the filesystem. */
 export function resolveInside(root: string, relPath: string): string {
-  const cleaned = (relPath ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
-  if (path.isAbsolute(cleaned)) {
+  const raw = relPath ?? ''
+  if (isSuspiciousRelative(raw)) {
     throw new HttpError(400, 'Path must be relative to the worktree root')
   }
+  const cleaned = raw.replace(/\\/g, '/')
   const resolved = path.resolve(root, cleaned)
   if (!isInside(root, resolved)) {
     throw new HttpError(400, 'Path escapes the worktree root')
   }
   return resolved
+}
+
+/**
+ * The guard that actually matters for reads. A symlink inside the worktree
+ * pointing at C:\Windows\System32 satisfies the lexical check — its own path is
+ * genuinely inside — so containment is re-verified against the real target.
+ */
+export async function resolveInsideReal(root: string, relPath: string): Promise<string> {
+  const lexical = resolveInside(root, relPath)
+  try {
+    return await assertInsideReal(root, lexical)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new HttpError(404, `No such path: ${relPath || '/'}`)
+    }
+    throw new HttpError(400, 'Path escapes the worktree root')
+  }
 }
 
 function toRel(root: string, abs: string): string {
@@ -59,7 +78,7 @@ export async function listDir(
   relPath: string,
   showAll = false,
 ): Promise<{ path: string; entries: DirEntry[] }> {
-  const dir = resolveInside(root, relPath)
+  const dir = await resolveInsideReal(root, relPath)
 
   let dirents
   try {
@@ -108,7 +127,7 @@ export interface FileContent {
 }
 
 export async function readTextFile(root: string, relPath: string): Promise<FileContent> {
-  const abs = resolveInside(root, relPath)
+  const abs = await resolveInsideReal(root, relPath)
 
   let stat
   try {

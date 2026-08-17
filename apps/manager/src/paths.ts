@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -52,8 +53,88 @@ export function containerPath(...parts: string[]): string {
   return joined.startsWith('/') ? joined : `/${joined}`
 }
 
-/** True when `child` is inside `parent` (or equal). Used to guard destructive ops. */
+/**
+ * True when `child` is inside `parent` (or equal), comparing paths only.
+ *
+ * `rel.startsWith('..')` is not sufficient in either direction: it wrongly
+ * rejects a legitimate entry named `..hidden` (relative path `..hidden`), and it
+ * is a string test on a value that must be compared as path segments. The check
+ * is therefore `rel === '..'` or a `..` followed by a separator.
+ *
+ * This is a *lexical* check and does not follow symlinks. Anything that then
+ * touches the filesystem must use `assertInsideReal`.
+ */
 export function isInside(parent: string, child: string): boolean {
   const rel = path.relative(path.resolve(parent), path.resolve(child))
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+  if (rel === '') return true
+  if (path.isAbsolute(rel)) return false
+  if (rel === '..') return false
+  return !rel.startsWith(`..${path.sep}`) && !rel.startsWith('../')
+}
+
+/**
+ * Reject inputs that look relative but are not, before they reach path.resolve.
+ *
+ * On Windows `C:foo` is *drive-relative*: it resolves against the current
+ * directory of drive C:, not against the path you joined it to, so it escapes a
+ * containment check that assumed a plain relative segment. `\\server\share` and
+ * a leading separator are likewise absolute in effect.
+ */
+export function isSuspiciousRelative(input: string): boolean {
+  if (input === '') return false
+  if (/^[A-Za-z]:/.test(input)) return true // C:foo and C:\foo
+  if (/^[\\/]{2}/.test(input)) return true // UNC \\server\share
+  if (/^[\\/]/.test(input)) return true // rooted
+  if (input.includes('\0')) return true // NUL truncation
+  return false
+}
+
+/**
+ * Containment that survives symlinks. A symlink *inside* the worktree pointing at
+ * C:\Windows passes the lexical check — its path really is inside — so both ends
+ * are resolved to their real locations before comparing.
+ *
+ * Returns the real, verified child path. Throws if it escapes.
+ */
+export async function assertInsideReal(parent: string, child: string): Promise<string> {
+  if (!isInside(parent, child)) {
+    throw new Error(`Path escapes ${parent}`)
+  }
+
+  const realParent = await fs.realpath(path.resolve(parent))
+
+  const realChild = await realpathOfNearestAncestor(path.resolve(child))
+
+  if (!isInside(realParent, realChild)) {
+    throw new Error(`Path escapes ${parent} after resolving symlinks`)
+  }
+  return realChild
+}
+
+/**
+ * realpath, tolerating a target that doesn't exist yet.
+ *
+ * Only the *existing* prefix of a path can contain a symlink, so resolving the
+ * nearest existing ancestor and re-attaching the remainder is equivalent to
+ * resolving the whole thing — and it works for paths several levels deep that
+ * have not been created. Resolving only one level up (the previous approach)
+ * failed with ENOENT whenever the immediate parent was also missing.
+ */
+async function realpathOfNearestAncestor(target: string): Promise<string> {
+  const segments: string[] = []
+  let current = target
+
+  for (;;) {
+    try {
+      const real = await fs.realpath(current)
+      return segments.length ? path.join(real, ...segments.reverse()) : real
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      const parent = path.dirname(current)
+      // Reached the filesystem root without finding anything that exists.
+      if (parent === current) return target
+      segments.push(path.basename(current))
+      current = parent
+    }
+  }
 }
