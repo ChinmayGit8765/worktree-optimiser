@@ -41,6 +41,11 @@ export interface Worktree {
   localUrl: string | null
   head: string | null
   dirty: boolean
+  changedFiles: number
+  ahead: number
+  behind: number
+  lastCommit: { hash: string; subject: string; date: string } | null
+  busy: boolean
   primary: boolean
   startedAt: string | null
   exitCode: number | null
@@ -143,4 +148,16 @@ export interface DoctorReport {
   checks: DoctorCheck[]
   platform: string
   generatedAt: string
+}
+
+export interface Diagnosis {
+  code: string
+  severity: 'ok' | 'warn' | 'error'
+  title: string
+  detail: string
+  fix?: string
+  listening: Array<{ address: string; port: number }>
+  probeStatus: number | null
+  exitCode: number | null
+  warnings: Array<{ code: string; title: string; detail: string; fix: string }>
 }

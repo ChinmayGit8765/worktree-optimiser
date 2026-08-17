@@ -143,6 +143,19 @@ export const manager = {
     })
   },
 
+  diagnose: (projectId: string, slug: string) =>
+    call<{
+      code: string
+      severity: string
+      title: string
+      detail: string
+      fix?: string
+      listening: Array<{ address: string; port: number }>
+      probeStatus: number | null
+      exitCode: number | null
+      warnings: Array<{ code: string; title: string; detail: string; fix: string }>
+    }>(`/api/projects/${projectId}/worktrees/${slug}/diagnose`),
+
   probe: (projectId: string, slug: string) =>
     call<{ reachable: boolean; status: number | null }>(
       `/api/projects/${projectId}/worktrees/${slug}/probe`,

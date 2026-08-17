@@ -1,4 +1,6 @@
-import type { Worktree } from '../types'
+import { useState } from 'react'
+import { api } from '../api'
+import type { Diagnosis, Worktree } from '../types'
 import { Spinner, StatusDot, statusLabel } from './ui'
 
 export interface WorktreeActions {
@@ -10,18 +12,60 @@ export interface WorktreeActions {
   onDestroy: () => void
 }
 
+function relativeTime(iso: string): string {
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000)
+  if (!Number.isFinite(seconds)) return ''
+  const units: Array<[number, string]> = [
+    [60, 's'],
+    [3600, 'm'],
+    [86400, 'h'],
+    [2592000, 'd'],
+  ]
+  if (seconds < 60) return `${Math.max(seconds, 0)}s ago`
+  for (let i = 1; i < units.length; i++) {
+    if (seconds < units[i]![0]) return `${Math.floor(seconds / units[i - 1]![0])}${units[i - 1]![1]} ago`
+  }
+  return `${Math.floor(seconds / 2592000)}mo ago`
+}
+
 export function WorktreeCard({
   worktree,
+  projectId,
   busy,
   actions,
 }: {
   worktree: Worktree
+  projectId: string
   busy: boolean
   actions: WorktreeActions
 }) {
+  const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null)
+  const [diagnosing, setDiagnosing] = useState(false)
+
   const running = worktree.status === 'running'
   const hasContainer = worktree.status !== 'absent'
   const orphaned = worktree.path === '(worktree missing)'
+  const working = busy || worktree.busy
+
+  const diagnose = async () => {
+    setDiagnosing(true)
+    try {
+      setDiagnosis(await api.diagnose(projectId, worktree.slug))
+    } catch (err) {
+      setDiagnosis({
+        code: 'error',
+        severity: 'error',
+        title: 'Could not run diagnostics',
+        detail: err instanceof Error ? err.message : String(err),
+        listening: [],
+        probeStatus: null,
+        exitCode: null,
+        warnings: [],
+      })
+    } finally {
+      setDiagnosing(false)
+    }
+  }
 
   return (
     <article className={`card${running ? ' is-running' : ''}`}>
@@ -32,12 +76,25 @@ export function WorktreeCard({
             {worktree.branch}
           </div>
           <div className="meta">
-            <span>{busy ? <Spinner /> : statusLabel(worktree.status)}</span>
+            <span>{working ? <Spinner /> : statusLabel(worktree.status)}</span>
             {worktree.head && <code>{worktree.head}</code>}
-            {worktree.dirty && <span className="badge dirty">uncommitted</span>}
+            {/* An agent working this branch needs to know whether its change is live. */}
+            {worktree.dirty && (
+              <span className="badge dirty">
+                {worktree.changedFiles} uncommitted
+              </span>
+            )}
+            {worktree.ahead > 0 && <span className="badge">↑{worktree.ahead}</span>}
+            {worktree.behind > 0 && <span className="badge">↓{worktree.behind}</span>}
             {worktree.primary && <span className="badge primary">primary</span>}
             {orphaned && <span className="badge dirty">orphaned</span>}
           </div>
+          {worktree.lastCommit && (
+            <div className="commit" title={worktree.lastCommit.subject}>
+              {worktree.lastCommit.subject}
+              <span className="when"> · {relativeTime(worktree.lastCommit.date)}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -72,23 +129,47 @@ export function WorktreeCard({
         </div>
       )}
 
+      {diagnosis && (
+        <div className={`diagnosis ${diagnosis.severity}`}>
+          <div className="d-title">
+            {diagnosis.title}
+            <button className="btn ghost sm" onClick={() => setDiagnosis(null)} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+          <div className="d-detail">{diagnosis.detail}</div>
+          {diagnosis.fix && <div className="d-fix">{diagnosis.fix}</div>}
+          {diagnosis.listening.length > 0 && (
+            <div className="d-ports">
+              listening inside container:{' '}
+              {diagnosis.listening.map((l) => `${l.address}:${l.port}`).join(', ')}
+            </div>
+          )}
+          {diagnosis.warnings.map((w) => (
+            <div className="d-warn" key={w.code}>
+              <strong>{w.title}</strong> — {w.fix}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="card-actions">
         {running ? (
-          <button className="btn sm" onClick={actions.onStop} disabled={busy}>
+          <button className="btn sm" onClick={actions.onStop} disabled={working}>
             Stop
           </button>
         ) : (
-          <button className="btn sm primary" onClick={actions.onStart} disabled={busy || orphaned}>
+          <button className="btn sm primary" onClick={actions.onStart} disabled={working || orphaned}>
             Start
           </button>
         )}
-        <button className="btn sm" onClick={actions.onRestart} disabled={busy || !hasContainer}>
+        <button className="btn sm" onClick={actions.onRestart} disabled={working || !hasContainer}>
           Restart
         </button>
         <button
           className="btn sm"
           onClick={actions.onRebuild}
-          disabled={busy || orphaned}
+          disabled={working || orphaned}
           title="Recreate the container so it picks up changed project settings"
         >
           Rebuild
@@ -97,9 +178,17 @@ export function WorktreeCard({
           Logs
         </button>
         <button
+          className="btn sm"
+          onClick={() => void diagnose()}
+          disabled={diagnosing || !hasContainer}
+          title="Work out why this worktree is not serving"
+        >
+          {diagnosing ? <Spinner /> : 'Diagnose'}
+        </button>
+        <button
           className="btn sm danger"
           onClick={actions.onDestroy}
-          disabled={busy || worktree.primary}
+          disabled={working || worktree.primary}
           title={worktree.primary ? 'The primary checkout cannot be removed' : 'Remove worktree'}
         >
           Remove

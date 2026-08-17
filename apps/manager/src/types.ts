@@ -91,6 +91,14 @@ export interface WorktreeInfo {
   localUrl: string | null
   head: string | null
   dirty: boolean
+  /** Uncommitted file count. */
+  changedFiles: number
+  /** Commits ahead/behind the upstream tracking branch, when one is set. */
+  ahead: number
+  behind: number
+  lastCommit: { hash: string; subject: string; date: string } | null
+  /** True while this process is creating, starting or rebuilding the container. */
+  busy: boolean
   /** True when the worktree dir is the project's primary checkout (not removable). */
   primary: boolean
   startedAt: string | null

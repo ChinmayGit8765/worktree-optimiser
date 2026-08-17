@@ -276,6 +276,13 @@ export async function fetchAll(repoPath: string): Promise<void> {
   await git(repoPath, ['fetch', '--all', '--prune'])
 }
 
+export interface LastCommit {
+  hash: string
+  subject: string
+  /** ISO 8601 committer date. */
+  date: string
+}
+
 export interface WorkingState {
   head: string | null
   dirty: boolean
@@ -283,6 +290,7 @@ export interface WorkingState {
   changedFiles: number
   ahead: number
   behind: number
+  lastCommit: LastCommit | null
 }
 
 export interface FileChange {
@@ -452,5 +460,16 @@ export async function workingState(worktreePath: string): Promise<WorkingState> 
     }
   }
 
-  return { head, dirty: changedFiles > 0, changedFiles, ahead, behind }
+  // Unit separator rather than a printable delimiter: commit subjects contain
+  // every punctuation character sooner or later.
+  let lastCommit: LastCommit | null = null
+  try {
+    const raw = await git(worktreePath, ['log', '-1', '--format=%h%x1f%s%x1f%cI'])
+    const [hash, subject, date] = raw.trim().split('\x1f')
+    if (hash) lastCommit = { hash, subject: subject ?? '', date: date ?? '' }
+  } catch {
+    // A branch with no commits yet has no log; leave it null.
+  }
+
+  return { head, dirty: changedFiles > 0, changedFiles, ahead, behind, lastCommit }
 }

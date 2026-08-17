@@ -259,7 +259,10 @@ async function inspectNodeApp(
     containerPort: port,
     install: installCommand(rootPm),
     dev,
-    env: { PORT: String(port), ...(profile.env ?? {}) },
+    // Every candidate states how it binds externally. Frameworks with a CLI flag
+    // get it in `dev`; the rest rely on HOST, and that belongs in the proposal
+    // the user confirms rather than being injected invisibly at container start.
+    env: { HOST: '0.0.0.0', PORT: String(port), ...(profile.env ?? {}) },
     volumePaths,
     confidence: profile.confidence + (workdir === '' ? 0 : 5),
   }

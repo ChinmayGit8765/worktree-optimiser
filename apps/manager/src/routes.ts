@@ -9,6 +9,7 @@ import {
   TRAEFIK_DASHBOARD_PORT,
 } from './config.js'
 import { candidateToConfig, detectProject } from './detect.js'
+import { diagnoseWorktree } from './diagnose.js'
 import { runDoctor } from './doctor.js'
 import {
   containerLogs,
@@ -322,6 +323,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       keepWorktree: query.keepWorktree,
     })
     return { removed: true }
+  })
+
+  /**
+   * Why a worktree is not serving, in actionable terms. Reads what the container
+   * is actually listening on rather than inferring from the proxy's response.
+   */
+  app.get('/api/projects/:id/worktrees/:slug/diagnose', async (req: FastifyRequest) => {
+    const { id, slug } = parse(WorktreeParams, req.params)
+    const project = await requireProject(id)
+    return diagnoseWorktree(project, slug)
   })
 
   app.get('/api/projects/:id/worktrees/:slug/probe', async (req: FastifyRequest) => {

@@ -11,6 +11,7 @@ import {
 import * as git from './git.js'
 import {
   docker,
+  isInFlight,
   listManagedContainers,
   normaliseStatus,
   removeWorktreeContainer,
@@ -44,10 +45,18 @@ export async function listWorktreeInfos(project: ProjectConfig): Promise<Worktre
 
     let head: string | null = tree.head?.slice(0, 8) ?? null
     let dirty = false
+    let changedFiles = 0
+    let ahead = 0
+    let behind = 0
+    let lastCommit: git.LastCommit | null = null
     try {
       const state = await git.workingState(tree.path)
       head = state.head ?? head
       dirty = state.dirty
+      changedFiles = state.changedFiles
+      ahead = state.ahead
+      behind = state.behind
+      lastCommit = state.lastCommit
     } catch {
       // Worktree dir deleted out from under git; leave the git-reported values.
     }
@@ -69,6 +78,11 @@ export async function listWorktreeInfos(project: ProjectConfig): Promise<Worktre
         : null,
       head,
       dirty,
+      changedFiles,
+      ahead,
+      behind,
+      lastCommit,
+      busy: isInFlight(project.id, slug),
       primary: isInside(project.repoPath, tree.path) && isInside(tree.path, project.repoPath),
       startedAt: container ? new Date(container.Created * 1000).toISOString() : null,
       exitCode: null,
@@ -95,6 +109,11 @@ export async function listWorktreeInfos(project: ProjectConfig): Promise<Worktre
       localUrl: hostPortOf(container.Labels) ? localUrlFor(hostPortOf(container.Labels)!) : null,
       head: null,
       dirty: false,
+      changedFiles: 0,
+      ahead: 0,
+      behind: 0,
+      lastCommit: null,
+      busy: isInFlight(project.id, slug),
       primary: false,
       startedAt: new Date(container.Created * 1000).toISOString(),
       exitCode: null,

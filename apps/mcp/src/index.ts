@@ -166,6 +166,36 @@ server.registerTool(
 )
 
 server.registerTool(
+  'diagnose_worktree',
+  {
+    title: 'Diagnose why a worktree is not serving',
+    description:
+      'Work out WHY a worktree is not responding, in actionable terms. Reads what the ' +
+      'container is actually listening on (via /proc/net/tcp inside it) rather than guessing ' +
+      'from the proxy response, so it distinguishes cases that look identical from outside: ' +
+      'still installing, nothing listening yet, listening on the wrong port (names the right ' +
+      'one), bound to 127.0.0.1 so the proxy can never reach it, exited, or killed for ' +
+      'exceeding its memory cap. Call this instead of guessing when probe_worktree is not 200.',
+    inputSchema: { projectId: z.string(), slug: z.string() },
+  },
+  async ({ projectId, slug }) => {
+    try {
+      const d = await manager.diagnose(projectId, slug)
+      const summary = [
+        `${d.severity.toUpperCase()}: ${d.title}`,
+        d.detail,
+        d.fix ? `Fix: ${d.fix}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+      return ok(d, summary)
+    } catch (err) {
+      return fail(err)
+    }
+  },
+)
+
+server.registerTool(
   'get_logs',
   {
     title: 'Read container logs',

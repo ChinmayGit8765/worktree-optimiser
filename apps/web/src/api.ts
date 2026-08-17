@@ -1,6 +1,7 @@
 import type {
   BranchRef,
   Detection,
+  Diagnosis,
   DiffSummary,
   DirListing,
   FileContent,
@@ -103,6 +104,8 @@ export const api = {
       { method: 'DELETE' },
     )
   },
+  diagnose: (id: string, slug: string) =>
+    request<Diagnosis>(`/api/projects/${id}/worktrees/${slug}/diagnose`),
   probe: (id: string, slug: string) =>
     request<{ reachable: boolean; status: number | null }>(
       `/api/projects/${id}/worktrees/${slug}/probe`,

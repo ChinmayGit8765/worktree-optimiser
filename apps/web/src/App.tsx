@@ -241,6 +241,7 @@ export default function App() {
                     <WorktreeCard
                       key={w.slug}
                       worktree={w}
+                      projectId={activeProject.id}
                       busy={busySlugs.has(w.slug)}
                       actions={{
                         onStart: () => void act(w.slug, () => api.start(activeProject.id, w.slug)),

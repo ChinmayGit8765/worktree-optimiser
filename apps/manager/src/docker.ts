@@ -261,6 +261,29 @@ export interface UpOptions {
   recreate?: boolean
 }
 
+/**
+ * Slugs with a create/start/rebuild currently in flight.
+ *
+ * This is not a store of worktree state — it records operations this process is
+ * running right now, and is correctly empty after a restart, because nothing is
+ * in flight then. An agent needs it to distinguish "not running" from "coming up".
+ */
+const inFlight = new Set<string>()
+
+export function isInFlight(projectId: string, slug: string): boolean {
+  return inFlight.has(`${projectId}/${slug}`)
+}
+
+async function tracked<T>(projectId: string, slug: string, fn: () => Promise<T>): Promise<T> {
+  const key = `${projectId}/${slug}`
+  inFlight.add(key)
+  try {
+    return await fn()
+  } finally {
+    inFlight.delete(key)
+  }
+}
+
 /** Ports already claimed by managed containers, so allocation never double-books. */
 export async function reservedHostPorts(excludeSlug?: string): Promise<number[]> {
   const containers = await listManagedContainers()
@@ -275,6 +298,12 @@ export async function reservedHostPorts(excludeSlug?: string): Promise<number[]>
 }
 
 export async function upWorktree(
+  opts: UpOptions,
+): Promise<{ containerId: string; created: boolean; hostPort: number | null }> {
+  return tracked(opts.project.id, opts.slug, () => upWorktreeInner(opts))
+}
+
+async function upWorktreeInner(
   opts: UpOptions,
 ): Promise<{ containerId: string; created: boolean; hostPort: number | null }> {
   const { project, branch, slug, hostPath, recreate = false } = opts
