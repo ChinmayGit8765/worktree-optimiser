@@ -192,6 +192,7 @@ GET    /api/projects/:id/worktrees/:slug/logs/stream          SSE
 GET    /api/projects/:id/worktrees/:slug/files?path=
 GET    /api/projects/:id/worktrees/:slug/file?path=
 GET    /api/projects/:id/worktrees/:slug/diff?base=
+GET    /api/projects/:id/worktrees/:slug/diff/patch?path=&origin=
 ```
 
 Request and response shapes in **[docs/api.md](docs/api.md)**.
@@ -220,7 +221,6 @@ Request and response shapes in **[docs/api.md](docs/api.md)**.
   screenshots, and have Claude analyse the rendered frontend. Stable per-branch URLs and
   the readiness probe exist for exactly this.
 - Per-worktree service dependencies (databases, queues) via compose fragments.
-- Resource caps per container, so twelve worktrees don't eat the machine.
 
 ---
 

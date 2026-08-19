@@ -317,6 +317,83 @@ Requests `127.0.0.1:<httpPort>` with `Host: <slug>.<domain>` — the browser's e
 through Traefik. `reachable: false` means no response at all; a `404`/`502` with
 `reachable: true` means Traefik answered but the app didn't.
 
+## Inspection
+
+Read-only browsing of a worktree — the file tree and diff the dashboard's navigator
+is built on. Every client-supplied path is resolved against the worktree root and
+re-checked after symlink resolution, so a symlink inside the worktree pointing at
+`C:\Windows\System32` is rejected rather than served.
+
+All four return `410` if the worktree directory has been deleted behind the tool's
+back, and `400` for a path that escapes the root.
+
+### `GET /api/projects/:id/worktrees/:slug/files?path=&all=false`
+
+One directory level, directories first. `path` is relative to the worktree root and
+defaults to it. `.git` is never listed; `node_modules`, `dist`, `.next`, `.venv` and
+similar noise are hidden unless `all=true`.
+
+```json
+{
+  "path": "src",
+  "entries": [
+    { "name": "components", "path": "src/components", "type": "dir", "size": null },
+    { "name": "main.tsx", "path": "src/main.tsx", "type": "file", "size": 412 }
+  ]
+}
+```
+
+### `GET /api/projects/:id/worktrees/:slug/file?path=src/main.tsx`
+
+```json
+{ "path": "src/main.tsx", "size": 412, "binary": false, "truncated": false, "content": "…" }
+```
+
+Capped at 512KB; a longer file comes back `truncated: true` with the first 512KB.
+`binary` is a NUL byte in the first 8KB — the same heuristic git uses — and binary
+files return empty `content` rather than mojibake.
+
+### `GET /api/projects/:id/worktrees/:slug/diff?base=main`
+
+What this branch changed. `base` defaults to the repo's default branch.
+
+```json
+{
+  "base": "main",
+  "ahead": 3,
+  "behind": 12,
+  "committed": [
+    { "path": "src/checkout.ts", "status": "M", "additions": 84, "deletions": 12,
+      "binary": false, "untracked": false }
+  ],
+  "working": [
+    { "path": "src/cart.ts", "status": "A", "additions": null, "deletions": null,
+      "binary": false, "untracked": true }
+  ]
+}
+```
+
+`committed` is what this branch has landed since diverging from `base`; `working` is
+what is still uncommitted, untracked files included. `status` is git's letter (`A`
+added, `M` modified, `D` deleted, `T` type-changed, `U` unmerged). Counts are `null`
+for binary files and for untracked ones, which have nothing to diff against yet.
+
+Rename detection is deliberately off — git renders renames in numstat with a
+`src/{a => b}.ts` brace syntax that is genuinely ambiguous to parse back into a path,
+so a rename shows as a delete plus an add.
+
+### `GET /api/projects/:id/worktrees/:slug/diff/patch?path=…&origin=working`
+
+The unified diff for one file. `origin` is `working` (default) or `committed`,
+matching which array of `/diff` the file came from; pass `untracked=true` for a file
+flagged as such, which is diffed against the null tree.
+
+```json
+{ "path": "src/cart.ts", "origin": "working", "base": "main", "patch": "@@ -1,4 +1,9 @@\n…" }
+```
+
+## Logs
+
 ### `GET /api/projects/:id/worktrees/:slug/logs?tail=400`
 
 ```json
