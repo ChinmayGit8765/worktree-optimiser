@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const MANAGER = process.env.WT_MANAGER_URL ?? 'http://localhost:7777'
+// 127.0.0.1 rather than localhost: the manager binds IPv4 loopback, and on Windows
+// `localhost` can resolve to ::1 first, which makes the proxy fail with ECONNREFUSED
+// against a manager that is plainly running.
+const MANAGER = process.env.WT_MANAGER_URL ?? 'http://127.0.0.1:7777'
 
 export default defineConfig({
   plugins: [react()],

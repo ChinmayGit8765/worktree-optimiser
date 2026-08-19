@@ -8,6 +8,11 @@ work and detection fills in the rest.
 
 Copy `.env.example` to `.env`, or export these directly. Every value is optional.
 
+The manager loads `.env` from the working directory at startup, falling back to the
+repo root. Exported variables take precedence over the file, so `WT_HTTP_PORT=8080
+npm start` overrides it for one run. (Reading `.env` needs Node 20.12+; on anything
+older the file is skipped and `npm run doctor` says so.)
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `WT_PORT` | `7777` | Manager API + dashboard port |
@@ -31,7 +36,11 @@ Copy `.env.example` to `.env`, or export these directly. Every value is optional
 | `WT_DEFAULT_CPUS` | `2` | Default CPU cap per container (0 = unlimited) |
 | `WT_DEFAULT_MEMORY_MB` | `4096` | Default memory cap per container (0 = unlimited) |
 | `WT_IDLE_STOP_MINUTES` | `0` | Stop a worktree after N minutes with no requests (0 = off) |
-| `WT_MANAGER_URL` | `http://localhost:7777` | Dev-only: Vite's proxy target |
+| `WT_MANAGER_URL` | `http://127.0.0.1:7777` | Where the MCP server (and Vite's dev proxy) look for the manager |
+
+The last row is read by the MCP server and the Vite dev server, not by the manager
+itself. The MCP process is launched by your agent client, so it sees that client's
+environment rather than this `.env` — set it in the MCP config. See [mcp.md](mcp.md).
 
 ### If port 80 is taken
 

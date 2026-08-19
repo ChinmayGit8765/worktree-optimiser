@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Must stay first: it populates process.env from .env before config.js reads it,
+// so the doctor checks the ports and bind style you actually run with.
+import './env.js'
 import { runDoctor, type CheckStatus } from './doctor.js'
 
 /**

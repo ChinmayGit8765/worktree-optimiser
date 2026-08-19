@@ -1,3 +1,5 @@
+// Must stay first: it populates process.env from .env before config.js reads it.
+import './env.js'
 import path from 'node:path'
 import fs from 'node:fs'
 import Fastify from 'fastify'

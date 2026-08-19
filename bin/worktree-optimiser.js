@@ -9,7 +9,6 @@
  * Nothing here does real work; it resolves the built entry point and hands over,
  * so `npx worktree-optimiser` behaves exactly like `npm start` in a clone.
  */
-import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import fs from 'node:fs'
@@ -17,16 +16,23 @@ import fs from 'node:fs'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
 
-const TARGETS = {
+// Null prototype so an argument like `constructor` resolves to nothing rather
+// than to something inherited from Object.prototype.
+const TARGETS = Object.assign(Object.create(null), {
   start: 'apps/manager/dist/index.js',
   doctor: 'apps/manager/dist/doctor-cli.js',
   mcp: 'apps/mcp/dist/index.js',
-}
+})
 
 const [, , rawCommand, ...rest] = process.argv
-const command = rawCommand && !rawCommand.startsWith('-') ? rawCommand : 'start'
 
-if (command === 'help' || command === '--help' || command === '-h') {
+// A leading `-` is a flag for the target, not a subcommand — but it must still be
+// tested against the help forms first, or `--help` resolves to `start` and boots
+// the server instead of printing anything.
+const isSubcommand = Boolean(rawCommand) && !rawCommand.startsWith('-')
+const command = isSubcommand ? rawCommand : 'start'
+
+if (rawCommand === 'help' || rawCommand === '--help' || rawCommand === '-h') {
   console.log(`
 worktree-optimiser — run every git worktree as its own containerised dev server
 
@@ -63,8 +69,10 @@ if (!fs.existsSync(target)) {
 }
 
 // Re-expose the remaining argv to the target as if it had been invoked directly.
-process.argv = [process.argv[0], target, ...rest]
+// The first argument is only dropped when it named a subcommand; a bare flag was
+// never consumed here, so it stays in argv for the target to interpret.
+process.argv = [process.argv[0], target, ...(isSubcommand ? rest : process.argv.slice(2))]
 
-// createRequire keeps resolution anchored to the package, not the caller's cwd.
-createRequire(import.meta.url)
+// An absolute file URL, so the import resolves against the package rather than
+// whatever directory the user happened to run this from.
 await import(pathToFileURL(target).href)

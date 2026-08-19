@@ -67,14 +67,25 @@ function atLeast(v: [number, number, number], min: [number, number, number]): bo
 
 async function checkNode(): Promise<Check> {
   const v = parseVersion(process.versions.node)
-  return atLeast(v, [20, 0, 0])
-    ? ok('node', 'Node', `v${process.versions.node}`)
-    : fail(
-        'node',
-        'Node',
-        `v${process.versions.node} is too old`,
-        'Install Node 20 or newer. The manager uses top-level await and modern fetch.',
-      )
+  if (!atLeast(v, [20, 0, 0])) {
+    return fail(
+      'node',
+      'Node',
+      `v${process.versions.node} is too old`,
+      'Install Node 20 or newer. The manager uses top-level await and modern fetch.',
+    )
+  }
+  // Not a blocker: only .env loading needs 20.12, and every setting can also be
+  // exported. Worth naming, because otherwise the file is ignored without a word.
+  if (!atLeast(v, [20, 12, 0])) {
+    return warn(
+      'node',
+      'Node',
+      `v${process.versions.node} — .env files are ignored`,
+      'Reading .env needs Node 20.12 or newer. Upgrade Node, or export the WT_* variables directly.',
+    )
+  }
+  return ok('node', 'Node', `v${process.versions.node}`)
 }
 
 async function checkGit(): Promise<Check> {

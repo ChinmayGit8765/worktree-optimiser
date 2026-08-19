@@ -6,6 +6,10 @@ dist/
 /data/
 apps/manager/public/
 
+# Local settings. May hold WT_TOKEN; .env.example is the tracked copy.
+.env
+.env.local
+
 # Editor / OS noise
 .DS_Store
 Thumbs.db
