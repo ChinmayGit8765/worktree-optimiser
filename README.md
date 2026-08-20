@@ -210,6 +210,8 @@ Request and response shapes in **[docs/api.md](docs/api.md)**.
 | [MCP server](docs/mcp.md) | Driving worktrees from a coding agent |
 | [Troubleshooting](docs/troubleshooting.md) | 502s, dead hot reload, port conflicts |
 | [Kubernetes backend](docs/kubernetes.md) | Planned migration path (not implemented) |
+| [Contributing](CONTRIBUTING.md) | Fork, develop, test, PR — and rebrand a fork cleanly |
+| [AGENTS.md](AGENTS.md) | Working contract for coding agents (and humans): invariants, conventions, parallel work |
 
 ---
 
